@@ -36,7 +36,7 @@ export function HostControls({ s }) {
                   : <button style={{ '--c': C.cyan }} onClick={() => act('host:pause')}>❚❚ Pausa</button>
               )}
               {s.phase === 'question' && <button style={{ '--c': C.orange }} onClick={() => act('host:skip')}>⏭ Salta domanda</button>}
-              {(s.phase === 'reveal' || s.phase === 'scores') && <button style={{ '--c': C.yellow }} onClick={() => act('host:next')}>▶ Prossima</button>}
+              {(s.phase === 'reveal' || s.phase === 'scores') && <button style={{ '--c': C.yellow }} onClick={() => act('host:next')}>▶ Avanti</button>}
               <button style={{ '--c': C.pink }} onClick={() => { setPanel(true); setOpen(false); }}>📝 Domande & foto</button>
               {s.phase !== 'end' && (
                 confirmEnd

@@ -1,18 +1,19 @@
-// Il reveal: ~8 secondi, parte nello stesso istante su tutti i dispositivi (timestamp del server),
-// e se Valerio beve finisce in caos totale. Tutto è su una timeline GSAP agganciata a phaseStartsAt:
-// chi si collega a metà salta direttamente al punto giusto.
-import { useLayoutEffect, useMemo, useRef } from 'react';
+// Il reveal, a pagine comandate dall'host: 0 il gruppo · 1 e Valerio? · 2 il verdetto · 3 le scommesse.
+// Una sola timeline GSAP con una pausa a fine pagina; ogni pagina parte sul timestamp del server
+// (phaseStartsAt), quindi tutti i dispositivi la vedono nello stesso istante. Chi rientra salta al punto giusto.
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import gsap from 'gsap';
 import { Face } from '../components/Face.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { Rich, plain } from '../components/UI.jsx';
 import { C, pairColors, vibrate, motion } from '../lib/theme.js';
-import { serverNow } from '../lib/net.js';
-import { sfx, atServer } from '../lib/audio.js';
+import { serverNow, emit } from '../lib/net.js';
+import { sfx, atServer, music } from '../lib/audio.js';
 import { burst, shake, loadImage, clearConfetti } from '../lib/fx.js';
 import { faceUrl } from '../components/Face.jsx';
 
-const T = { bars: 0.5, face: 3.0, stop: 5.0, verdict: 5.5, fate: 7.3, bet: 10.2 };
+const T = { bars: 0.5, face: 3.0, stop: 5.0, verdict: 5.5, fate: 7.3 };
+const NEXT_LABEL = ['E VALERIO? ▶', 'VERDETTO ▶', 'SCOMMESSE ▶', 'CLASSIFICA ▶'];
 // Roulette beve/penitenza: tante caselle alternate, l'ultima è l'esito deciso dal server
 const REEL = 15;
 const reelItems = (type) => Array.from({ length: REEL }, (_, i) => {
@@ -37,6 +38,11 @@ export function Reveal({ s, tv = false }) {
 
   const lost = res.lost;
   const fate = res.punishment?.type; // 'drink' | 'penance' | undefined
+  const betT = lost ? 10.2 : 8.2;
+  // inizio di ogni pagina sulla timeline (l'ultima è la fine)
+  const bounds = [0, T.face, T.verdict, betT, betT + 1.2];
+  const tlRef = useRef(null);
+  const step = s.revealStep ?? 0;
   const banner = lost
     ? res.reason === 'novote' ? 'NON HA SCELTO = PERDE'
       : res.reason === 'tie' ? (res.n ? 'PAREGGIO = PERDE' : 'NESSUNO HA VOTATO')
@@ -46,32 +52,12 @@ export function Reveal({ s, tv = false }) {
 
   useLayoutEffect(() => {
     const el = root.current;
-    const startsAt = s.phaseStartsAt;
-    const at = (t) => atServer(startsAt + t * 1000);
-    const future = (t) => serverNow() < startsAt + t * 1000 - 40;
     const q = gsap.utils.selector(el);
     const stageW = () => q('.rv-stage')[0]?.clientWidth || 300;
     const side = (v) => (v === 'x' ? -1 : v === 'y' ? 1 : 0) * stageW() * 0.25;
     const images = [loadImage(faceUrl(faces, 'disperato'))].filter(Boolean);
 
-    // ---- audio, schedulato sull'orologio audio (preciso al ms) ----
-    if (future(0)) sfx.drumroll(at(0), T.stop);
-    if (future(T.stop)) sfx.thud(at(T.stop));
-    if (lost) {
-      if (future(T.verdict)) sfx.siren(at(T.verdict), T.fate - T.verdict + 0.2, 0.1);
-      // tic della roulette: uno per casella, rallentando come la ruota (power3.out)
-      for (let k = 1; k < REEL; k++) {
-        const tk = T.verdict + 0.2 + 1.7 * (1 - Math.cbrt(1 - k / (REEL - 1)));
-        if (future(tk)) sfx.tick(k % 2 === 0, at(tk));
-      }
-      if (future(T.fate)) {
-        fate === 'drink' ? sfx.drink(at(T.fate)) : sfx.penance(at(T.fate));
-        const letters = fate === 'drink' ? 11 : 10;
-        for (let i = 0; i < letters; i++) sfx.slam(at(T.fate + i * 0.085));
-      }
-    } else if (future(T.verdict)) sfx.saved(at(T.verdict));
-    if (!tv && myBet && future(T.bet)) (myBet.correct ? sfx.chaching : sfx.sad)(at(T.bet));
-
+    music.hold('reveal');
     const ctx = gsap.context(() => {
       const tl = gsap.timeline({ paused: true });
 
@@ -149,27 +135,68 @@ export function Reveal({ s, tv = false }) {
         .fromTo('.rv-meme', { scale: 0, rotate: 30 }, { scale: 1, rotate: 6, duration: 0.6, ease: 'back.out(2)' }, after + 2);
 
       // 10.2 esito scommessa / riepilogo
-      tl.fromTo('.rv-bet', { yPercent: 140 }, { yPercent: 0, duration: 0.55, ease: 'back.out(1.8)' }, T.bet);
-      if (!tv && myBet?.correct) tl.call(() => burst({ x: 0.5, y: 0.9, count: 30, power: 0.8, colors: [C.cyan, C.cream, C.yellow] }), null, T.bet + 0.2);
-      if (!tv && myBet && !myBet.correct) tl.to('.rv-bet .avatar', { scaleY: 0.6, y: 12, duration: 0.5, ease: 'power2.in' }, T.bet + 0.5);
+      tl.fromTo('.rv-bet', { yPercent: 160, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.55, ease: 'back.out(1.8)' }, betT);
+      if (!tv && myBet?.correct) tl.call(() => burst({ x: 0.5, y: 0.9, count: 30, power: 0.8, colors: [C.cyan, C.cream, C.yellow] }), null, betT + 0.2);
+      if (!tv && myBet && !myBet.correct) tl.to('.rv-bet .avatar', { scaleY: 0.6, y: 12, duration: 0.5, ease: 'power2.in' }, betT + 0.5);
 
-      // Aggancio all'orologio del server
-      const elapsed = (serverNow() - startsAt) / 1000;
-      if (elapsed <= 0) {
-        const id = setTimeout(() => tl.play(), -elapsed * 1000);
-        return () => clearTimeout(id);
-      }
-      tl.seek(elapsed, true).play();
+      // una pausa a fine di ogni pagina: si va avanti solo quando l'host preme AVANTI
+      bounds.slice(1, -1).forEach((b) => tl.addPause(b));
+      tlRef.current = tl;
     }, el);
-    return () => { ctx.revert(); clearConfetti(); };
+    return () => { tlRef.current = null; ctx.revert(); clearConfetti(); music.release('reveal'); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.phaseStartsAt, r.index]);
+  }, [r.index]);
+
+  // Ogni pagina: suoni schedulati sull'orologio audio + timeline posizionata sul tempo del server
+  useEffect(() => {
+    const tl = tlRef.current;
+    if (!tl) return;
+    const st = s.phaseStartsAt;
+    const at = (t) => atServer(st + (t - bounds[step]) * 1000);
+    const future = (t) => serverNow() < st + (t - bounds[step]) * 1000 - 40;
+
+    if (step === 0) { if (future(0)) sfx.whoosh(at(0)); }
+    if (step === 1) {
+      if (future(T.face)) sfx.drumroll(at(T.face), T.stop - T.face);
+      if (future(T.stop)) sfx.thud(at(T.stop));
+    }
+    if (step === 2) {
+      if (lost) {
+        if (future(T.verdict)) sfx.siren(at(T.verdict), T.fate - T.verdict + 0.2, 0.1);
+        // tic della roulette: uno per casella, rallentando come la ruota (power3.out)
+        for (let k = 1; k < REEL; k++) {
+          const tk = T.verdict + 0.2 + 1.7 * (1 - Math.cbrt(1 - k / (REEL - 1)));
+          if (future(tk)) sfx.tick(k % 2 === 0, at(tk));
+        }
+        if (future(T.fate)) {
+          fate === 'drink' ? sfx.drink(at(T.fate)) : sfx.penance(at(T.fate));
+          const letters = fate === 'drink' ? 11 : 10;
+          for (let i = 0; i < letters; i++) sfx.slam(at(T.fate + i * 0.085));
+        }
+      } else if (future(T.verdict)) sfx.saved(at(T.verdict));
+    }
+    if (step === 3 && !tv && myBet && future(betT)) (myBet.correct ? sfx.chaching : sfx.sad)(at(betT));
+
+    const go = () => {
+      const elapsed = Math.max(0, (serverNow() - st) / 1000);
+      const pos = Math.min(bounds[step] + elapsed, bounds[step + 1]);
+      tl.seek(Math.max(pos, bounds[step] + 0.001), true);
+      if (pos < bounds[step + 1]) tl.play();
+    };
+    const wait = st - serverNow();
+    if (wait > 0) {
+      const id = setTimeout(go, wait);
+      return () => clearTimeout(id);
+    }
+    go();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, s.phaseStartsAt, r.index]);
 
   const title = !lost ? ['SALVO'] : fate === 'drink' ? ['VALERIO', 'BEVE'] : ['PENITENZA!'];
   let li = 0;
 
   return (
-    <div className={`screen reveal ${tv ? 'is-tv' : ''}`} ref={root} style={{ '--x': cx, '--y': cy }}>
+    <div className={`screen reveal ${tv ? 'is-tv' : ''} ${me?.isHost ? 'has-next' : ''}`} ref={root} style={{ '--x': cx, '--y': cy }}>
       <div className="rv-dark" />
       <div className="rv-shake" ref={shakeBox}>
         <div className="rv-q">
@@ -233,7 +260,30 @@ export function Reveal({ s, tv = false }) {
       </div>
 
       <BetResult s={s} res={res} tv={tv} myBet={myBet} />
+      {me?.isHost && <NextButton step={step} />}
     </div>
+  );
+}
+
+function NextButton({ step }) {
+  const busy = useRef(false);
+  useEffect(() => {
+    busy.current = true;
+    const id = setTimeout(() => { busy.current = false; }, 700);
+    return () => clearTimeout(id);
+  }, [step]);
+  return (
+    <button
+      className="rv-next"
+      onClick={() => {
+        if (busy.current) return;
+        busy.current = true;
+        sfx.click();
+        emit('host:next');
+      }}
+    >
+      {NEXT_LABEL[step] || 'AVANTI ▶'}
+    </button>
   );
 }
 

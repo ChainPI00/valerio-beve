@@ -19,9 +19,10 @@ export function setMuted(m) {
   try { localStorage.setItem(MUTE_KEY, m ? '1' : '0'); } catch {}
   if (master) master.gain.setTargetAtTime(m ? 0 : vol(), ctx.currentTime, 0.02);
   listeners.forEach((l) => l(m));
+  updateMusicGain();
 }
 const vol = () => (big ? 1 : 0.8);
-export function setBigScreen(b) { big = b; if (master && !muted) master.gain.value = vol(); }
+export function setBigScreen(b) { big = b; if (master && !muted) master.gain.value = vol(); updateMusicGain(); }
 
 // Da chiamare dentro un gesto dell'utente (tap su "Entra"): i browser mobile bloccano l'audio fino ad allora.
 export function unlockAudio() {
@@ -52,15 +53,27 @@ export function unlockAudio() {
     const wet = ctx.createGain();
     wet.gain.value = 0.35;
     reverb.connect(wet).connect(master);
+    setupMusic();
+    // Safari mette il contesto in "interrupted" (schermo bloccato, notifiche, chiamate): proviamo a riprenderlo
+    ctx.onstatechange = () => {
+      if (ctx.state !== 'running' && document.visibilityState === 'visible') setTimeout(tryResume, 300);
+    };
   }
-  if (ctx.state === 'suspended') ctx.resume();
+  tryResume();
+}
+function tryResume() {
+  // 'suspended' e 'interrupted' (Safari) vanno entrambi ripresi
+  if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {});
 }
 export const audioReady = () => !!ctx && ctx.state === 'running';
+export const audioStarted = () => !!ctx;
 if (typeof window !== 'undefined') {
-  // dopo un reload l'audio riparte al primo tocco, ovunque
+  // l'audio riparte al primo tocco, ovunque. Safari conta come gesto touchend/click, non pointerdown.
   const kick = () => { if (!ctx || ctx.state !== 'running') unlockAudio(); };
-  window.addEventListener('pointerdown', kick, { passive: true });
-  window.addEventListener('keydown', kick);
+  for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) window.addEventListener(ev, kick, { passive: true, capture: true });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tryResume(); });
+  window.addEventListener('pageshow', tryResume);
+  window.addEventListener('focus', tryResume);
 }
 
 // Tempo audio che corrisponde a un istante del server (ms)
@@ -356,4 +369,130 @@ export const sfx = {
     }
     noise(t + 1.15, 1.2, { gain: 0.2, type: 'highpass', freq: 6000, out: reverb });
   },
+};
+
+// =====================================================================
+// Musica di sottofondo: loop pop morbido in Fa maggiore, 100 bpm, 8 battute.
+// È agganciata alla griglia dell'orologio del server: tutti i telefoni suonano
+// la stessa nota nello stesso istante. Si abbassa da sola durante reveal e proclamazione.
+// =====================================================================
+const STEP_MS = 150; // sedicesimi a 100 bpm
+const MUSIC_KEY = 'vb:music';
+let musicOn = (() => { try { return localStorage.getItem(MUSIC_KEY) !== '0'; } catch { return true; } })();
+let musicGain = null;
+let musicTimer = null;
+let lastStep = -1;
+const holds = new Set();
+const musicListeners = new Set();
+
+const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+//            F           Am          Bb          C           F           Dm          Gm          C
+const CHORDS = [[57, 60, 65], [57, 60, 64], [58, 62, 65], [55, 60, 64], [57, 60, 65], [57, 62, 65], [55, 58, 62], [55, 60, 64]];
+const BASS = [41, 45, 46, 36, 41, 38, 43, 36];
+const MELODY = [
+  [81, 0, 79, 77, 0, 72, 0, 0], [72, 76, 0, 81, 0, 79, 0, 0], [77, 0, 74, 77, 79, 0, 77, 0], [79, 0, 0, 76, 72, 0, 0, 0],
+  [81, 0, 84, 81, 79, 0, 77, 0], [74, 0, 77, 0, 81, 79, 77, 0], [79, 0, 82, 79, 77, 0, 74, 0], [76, 0, 79, 0, 72, 0, 0, 0],
+];
+const KEYS_HITS = { 0: 1.1, 3: 0.28, 6: 0.3, 8: 1.0, 11: 0.28, 14: 0.3 };
+
+function setupMusic() {
+  musicGain = ctx.createGain();
+  musicGain.gain.value = 0;
+  musicGain.connect(master);
+  const send = ctx.createGain();
+  send.gain.value = 0.5;
+  musicGain.connect(send).connect(reverb);
+  updateMusicGain();
+  clearInterval(musicTimer);
+  musicTimer = setInterval(scheduleMusic, 60);
+}
+
+const musicLevel = () => (big ? 0.9 : 0.6);
+function updateMusicGain() {
+  if (!musicGain) return;
+  const target = musicOn && !muted && holds.size === 0 ? musicLevel() : 0;
+  musicGain.gain.cancelScheduledValues(ctx.currentTime);
+  musicGain.gain.setTargetAtTime(target, ctx.currentTime, target > 0 ? 0.6 : 0.12);
+}
+
+function scheduleMusic() {
+  if (!ctx || ctx.state !== 'running' || !musicOn || muted || holds.size) { lastStep = -1; return; }
+  const now = serverNow();
+  const from = Math.max(lastStep + 1, Math.ceil(now / STEP_MS));
+  const to = Math.floor((now + 260) / STEP_MS);
+  for (let n = from; n <= to; n++) playStep(n, atServer(n * STEP_MS));
+  lastStep = Math.max(lastStep, to);
+}
+
+function mNote(type, freq, t, dur, gain, a = 0.008) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type;
+  o.frequency.value = freq;
+  env(g, t, a, gain, dur);
+  o.connect(g).connect(musicGain);
+  o.start(t);
+  o.stop(t + a + dur + 0.05);
+  return o;
+}
+function mNoise(t, dur, gain, type, freq, q = 1) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  const f = ctx.createBiquadFilter();
+  f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = ctx.createGain();
+  env(g, t, 0.002, gain, dur);
+  src.connect(f).connect(g).connect(musicGain);
+  src.start(t, Math.random() * 1.5);
+  src.stop(t + dur + 0.05);
+}
+
+function playStep(n, t) {
+  if (t < ctx.currentTime - 0.01) return;
+  const step = ((n % 16) + 16) % 16;
+  const bar = Math.floor(n / 16);
+  const b = ((bar % 8) + 8) % 8;
+  const cycle = Math.floor(bar / 8);
+  // pianoforte elettrico: accordi sincopati
+  const len = KEYS_HITS[step];
+  if (len) {
+    for (const m of CHORDS[b]) {
+      mNote('sine', hz(m), t, len, 0.045);
+      mNote('triangle', hz(m + 12), t, len * 0.5, 0.012);
+    }
+  }
+  // basso
+  if (step === 0 || step === 7 || step === 10) mNote('triangle', hz(BASS[b] + (step === 7 ? 12 : 0)), t, 0.28, 0.14, 0.01);
+  if (step === 0) mNote('sine', hz(BASS[b] - 12), t, 0.4, 0.12, 0.01);
+  // cassa morbida
+  if (step === 0 || step === 8 || (step === 10 && b % 2)) {
+    const o = mNote('sine', 95, t, 0.22, 0.2, 0.004);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.18);
+  }
+  // schiocco e shaker
+  if (step === 4 || step === 12) mNoise(t, 0.07, 0.06, 'bandpass', 1900, 0.9);
+  if (step % 4 === 2) mNoise(t, 0.045, 0.028, 'highpass', 7000);
+  else if (step % 2 === 1) mNoise(t, 0.03, 0.012, 'highpass', 8000);
+  // melodia a campanelle (2 giri su 3)
+  if (cycle % 3 !== 2 && step % 2 === 0) {
+    const m = MELODY[b][step / 2];
+    if (m) {
+      mNote('sine', hz(m), t, 0.55, 0.05, 0.004);
+      mNote('sine', hz(m) * 2.01, t, 0.25, 0.012, 0.004);
+    }
+  }
+}
+
+export const music = {
+  isOn: () => musicOn,
+  setOn(on) {
+    musicOn = on;
+    try { localStorage.setItem(MUSIC_KEY, on ? '1' : '0'); } catch {}
+    updateMusicGain();
+    musicListeners.forEach((l) => l(on));
+  },
+  onChange(fn) { musicListeners.add(fn); return () => musicListeners.delete(fn); },
+  // reveal e proclamazione "tengono" giù la musica finché sono a schermo
+  hold(id) { holds.add(id); updateMusicGain(); },
+  release(id) { holds.delete(id); updateMusicGain(); },
 };

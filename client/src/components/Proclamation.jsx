@@ -5,7 +5,7 @@ import gsap from 'gsap';
 import { Face, CrownOverlay, LAUREL } from './Face.jsx';
 import { C, vibrate } from '../lib/theme.js';
 import { serverNow } from '../lib/net.js';
-import { sfx, atServer } from '../lib/audio.js';
+import { sfx, atServer, music } from '../lib/audio.js';
 import { burst } from '../lib/fx.js';
 
 export const PROCLAIM_S = 8.8;
@@ -56,6 +56,7 @@ export function Proclamation({ s, startsAt, tv = false, onDone }) {
     if (future(3.4)) { sfx.fanfare(at(3.4)); sfx.roar(at(3.5), 3); }
     if (future(4.8)) sfx.chant(at(4.8));
 
+    music.hold('proclaim');
     const ctx = gsap.context(() => {
       const tl = gsap.timeline({ paused: true, onComplete: () => onDone?.() });
       tl.fromTo('.pc-bg', { opacity: 0 }, { opacity: 1, duration: 0.4 }, 0)
@@ -95,7 +96,7 @@ export function Proclamation({ s, startsAt, tv = false, onDone }) {
       }
       tl.seek(elapsed, true).play();
     }, ref);
-    return () => ctx.revert();
+    return () => { ctx.revert(); music.release('proclaim'); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startsAt]);
 

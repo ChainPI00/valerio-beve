@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore, resumeSaved, session } from './lib/net.js';
-import { Background, Stage, MuteToggle } from './components/UI.jsx';
+import { Background, Stage, MuteToggle, MusicToggle } from './components/UI.jsx';
 import { HostControls } from './components/HostControls.jsx';
 import { Face } from './components/Face.jsx';
 import { Home } from './screens/Home.jsx';
@@ -11,7 +11,7 @@ import { Scores } from './screens/Scores.jsx';
 import { End } from './screens/End.jsx';
 import { TvJoin, TvLobby, TvQuestion } from './screens/Tv.jsx';
 import { C, pairColors, joke, isTv } from './lib/theme.js';
-import { audioReady, unlockAudio } from './lib/audio.js';
+import { audioReady, unlockAudio, isMuted } from './lib/audio.js';
 
 // /ABCD → entra con codice · /tv → schermo grande · /tv/ABCD → schermo grande collegato
 const path = location.pathname.replace(/\/+$/, '');
@@ -63,10 +63,11 @@ export function App() {
         <Stage viewKey={key} color={state?.phase === 'reveal' ? C.night : ax}>{view}</Stage>
       </main>
       <MuteToggle />
+      <MusicToggle />
       {state?.me?.isHost && <HostControls s={state} />}
       {state?.paused && <PausedBanner s={state} />}
       {!connected && !booting && <div className="offline">{joke('offline')}</div>}
-      {state && !state.me && <TvAudioGate />}
+      {state && <AudioGate tv={!state.me} />}
     </div>
   );
 }
@@ -90,17 +91,22 @@ function PausedBanner({ s }) {
   );
 }
 
-// Se la TV si è ricollegata da sola (reload) l'audio è bloccato finché qualcuno non clicca
-function TvAudioGate() {
-  const [ready, setReady] = useState(audioReady());
+// Se il browser ha spento l'audio (Safari dopo blocco schermo, notifica, reload) chiediamo un tocco
+function AudioGate({ tv }) {
+  const [ok, setOk] = useState(true);
   useEffect(() => {
-    const id = setInterval(() => setReady(audioReady()), 1000);
+    let misses = 0;
+    const id = setInterval(() => {
+      // aspettiamo ~2 s prima di mostrarla, così non lampeggia mentre Safari si riprende da solo
+      misses = audioReady() || isMuted() ? 0 : misses + 1;
+      setOk(misses < 3);
+    }, 700);
     return () => clearInterval(id);
   }, []);
-  if (ready) return null;
+  if (ok) return null;
   return (
-    <button className="audio-gate" onClick={() => { unlockAudio(); setTimeout(() => setReady(audioReady()), 100); }}>
-      🔊 Clicca per attivare l’audio
+    <button className={`audio-gate ${tv ? '' : 'is-phone'}`} onClick={() => { unlockAudio(); setOk(true); }}>
+      🔊 {tv ? 'Clicca' : 'Tocca'} per riattivare l’audio
     </button>
   );
 }

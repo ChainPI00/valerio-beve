@@ -13,7 +13,7 @@ const URL = `http://localhost:${PORT}`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vb-test-'));
 
 const server = spawn(process.execPath, ['server/index.js'], {
-  env: { ...process.env, PORT, DATA_DIR: dataDir, REVEAL_MS: '300', HOST_GRACE_MS: '200', HOST_PIN: '' },
+  env: { ...process.env, PORT, DATA_DIR: dataDir, HOST_GRACE_MS: '200', HOST_PIN: '' },
   stdio: ['ignore', 'pipe', 'inherit'],
 });
 await new Promise((res) => server.stdout.on('data', (d) => String(d).includes('Valerio Beve') && res()));
@@ -44,6 +44,17 @@ async function until(pred, label, ms = 3000) {
   while (!pred()) {
     if (Date.now() - t0 > ms) throw new Error(`Timeout: ${label}`);
     await sleep(15);
+  }
+}
+
+// L'host sfoglia le pagine del reveal e la classifica fino alla domanda successiva (o alla fine)
+async function advance(host) {
+  for (let i = 0; i < 8; i++) {
+    const ph = host.state.phase;
+    if (ph !== 'reveal' && ph !== 'scores') return;
+    const before = `${ph}:${host.state.revealStep}`;
+    await host.emit('host:next');
+    await until(() => `${host.state.phase}:${host.state.revealStep}` !== before, 'pagina successiva');
   }
 }
 
@@ -139,14 +150,14 @@ try {
   ok(`reveal con partenza sincronizzata (+${rs}ms)`);
 
   // --- round 2: minoranza ---
-  await host.emit('host:next');
+  await advance(host);
   r = await playRound({ votes: others.map((_, i) => (i < 15 ? 'y' : 'x')), vv: 'x' });
   assert.equal(r.lost, true); assert.equal(r.reason, 'minority'); assert.equal(r.unanimous, false);
   ok('minoranza: Valerio beve');
 
   // --- round 3: pareggio (18 votanti perché uno non vota... usiamo 19: impossibile pareggio) ---
   // Per il pareggio l'host non vota: 18 votanti 9/9
-  await host.emit('host:next');
+  await advance(host);
   await until(() => host.state.phase === 'question', 'q3');
   {
     const round = host.state.round.index;
@@ -163,7 +174,7 @@ try {
   assert.equal(host.state.round.result.reason, 'minority');
   ok('10 contro 9 con Valerio nei 9 → beve');
 
-  await host.emit('host:next');
+  await advance(host);
   await until(() => host.state.phase === 'question', 'q4');
   {
     const round = host.state.round.index;
@@ -186,7 +197,7 @@ try {
   }
 
   // --- round 5: unanimità contro Valerio + voti in ritardo ignorati ---
-  await host.emit('host:next');
+  await advance(host);
   r = await playRound({ votes: others.map(() => 'x'), vv: 'y' });
   assert.equal(r.unanimous, true); assert.equal(r.sameAsValerio, 0);
   ok('UNICO CONTRO TUTTI rilevato');
@@ -197,7 +208,7 @@ try {
   ok('streak di 3 bevute → IN FIAMME');
 
   // --- round 6: riconnessione a metà round ---
-  await host.emit('host:next');
+  await advance(host);
   const phoenix = friends[3];
   r = await playRound({ votes: others.map((_, i) => (i % 3 ? 'x' : 'y')), vv: 'x', reconnect: phoenix });
   assert.ok(r.voters.some((v) => v.id === phoenix.me.id));
@@ -205,7 +216,7 @@ try {
   ok('telefono bloccato e riaperto: rientra, stesso nome, vota');
 
   // --- round 7: host esce → pausa, rientra → riprende ---
-  await host.emit('host:next');
+  await advance(host);
   await until(() => host.state.phase === 'question', 'q7');
   host.socket.disconnect();
   await until(() => valerio.state.paused === true && valerio.state.pauseReason === 'host', 'pausa host', 2000);
@@ -239,10 +250,24 @@ try {
   assert.equal(host.state.round.result.reason, 'novote');
   assert.equal(host.state.round.result.lost, true);
   ok('Valerio non vota → perde per diserzione');
-  await until(() => host.state.phase === 'scores', 'mini classifica');
-  ok('dopo il reveal arriva la mini classifica');
+  await sleep(400);
+  assert.equal(host.state.phase, 'reveal');
+  assert.equal(host.state.revealStep, 0);
+  ok('il reveal resta fermo finché l\'host non va avanti');
+  const pages = [];
+  for (let i = 0; i < 4; i++) {
+    await host.emit('host:next');
+    await until(() => host.state.phase === 'scores' || host.state.revealStep === i + 1, 'pagina');
+    pages.push(host.state.phase === 'scores' ? 'classifica' : host.state.revealStep);
+    if (host.state.phase === 'reveal') assert.ok(host.state.phaseStartsAt > host.state.serverNow, 'pagina programmata nel futuro');
+  }
+  assert.deepEqual(pages, [1, 2, 3, 'classifica']);
+  ok('l\'host sfoglia 4 pagine (gruppo → Valerio → verdetto → scommesse) e poi la classifica');
+  const notHostNext = await friends[0].emit('host:next');
+  assert.equal(notHostNext.error, 'nohost');
+  ok('solo l\'host gira pagina');
 
-  await host.emit('host:next');
+  await advance(host);
   await until(() => lateBot.state?.phase === 'question' && lateBot.me.eligible, 'late eligible');
   ok('il ritardatario gioca dal round successivo');
   everyone.push(lateBot); others.push(lateBot);
@@ -270,7 +295,7 @@ try {
       fates[res.punishment.type]++;
     } else assert.equal(res.punishment, null);
     played = round + 1;
-    await host.emit('host:next');
+    await advance(host);
     await until(() => host.state.phase !== 'reveal' && host.state.phase !== 'scores', 'dopo next');
   }
   if (host.state.phase !== 'end') await host.emit('host:end');

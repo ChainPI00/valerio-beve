@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, Fragment } from 'react';
 import gsap from 'gsap';
 import { C, vibrate, motion } from '../lib/theme.js';
 import { serverNow } from '../lib/net.js';
-import { sfx, isMuted, setMuted, onMuteChange, unlockAudio } from '../lib/audio.js';
+import { sfx, isMuted, setMuted, onMuteChange, unlockAudio, music } from '../lib/audio.js';
 
 // ---------- Sfondo mai fermo ----------
 const PATTERN = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'><g fill='none' stroke='#3D1A78' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'><path d='M20 40 q15 -20 30 0 t30 0'/><path d='M150 30 l8 18 20 2 -15 13 5 20 -18 -11 -18 11 5 -20 -15 -13 20 -2z'/><circle cx='60' cy='150' r='16'/><path d='M140 150 q15 -20 30 0 t30 0'/><path d='M95 95 l14 14 m0 -14 l-14 14'/></g><g fill='#3D1A78'><circle cx='200' cy='110' r='6'/><circle cx='110' cy='200' r='6'/><circle cx='20' cy='100' r='5'/></g></svg>`)}")`;
@@ -119,6 +119,19 @@ export function MuteToggle() {
       ) : (
         <svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M16 8.5c1.5 1.8 1.5 5.2 0 7M18.5 6c3 3.3 3 8.7 0 12" /></svg>
       )}
+    </button>
+  );
+}
+
+export function MusicToggle() {
+  const [on, setOn] = useState(music.isOn());
+  const [m, setM] = useState(isMuted());
+  useEffect(() => music.onChange(setOn), []);
+  useEffect(() => onMuteChange(setM), []);
+  if (m) return null; // col muto generale la musica è già spenta
+  return (
+    <button className={`mute music-toggle ${on ? '' : 'is-off'}`} onClick={() => { unlockAudio(); music.setOn(!on); }} aria-label={on ? 'Spegni la musica' : 'Accendi la musica'}>
+      <svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" />{!on && <path d="M4 4l16 16" />}</svg>
     </button>
   );
 }

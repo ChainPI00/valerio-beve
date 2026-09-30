@@ -2,7 +2,8 @@
 import crypto from 'node:crypto';
 
 export const REVEAL_LEAD_MS = 500; // ritardo programmato: tutti ricevono l'evento prima che parta
-export const REVEAL_MS = Number(process.env.REVEAL_MS || 14000); // durata show prima della mini classifica
+export const REVEAL_STEPS = 4; // pagine del reveal: gruppo, Valerio, verdetto, scommesse (poi classifica)
+const STEP_LEAD_MS = 350; // ogni pagina parte un filo nel futuro, così arriva a tutti prima di iniziare
 export const PENANCE_CHANCE = Number(process.env.PENANCE_CHANCE ?? 0.5); // quando Valerio perde: 50% beve, 50% penitenza
 const HOST_GRACE_MS = Number(process.env.HOST_GRACE_MS || 3000);
 export const MAX_PLAYERS = 30;
@@ -290,9 +291,9 @@ export class Room {
 
     const now = Date.now();
     this.phase = 'reveal';
+    this.revealStep = 0;
     this.phaseStartsAt = now + REVEAL_LEAD_MS;
-    this.phaseEndsAt = this.phaseStartsAt + REVEAL_MS;
-    this.schedule(this.phaseEndsAt - now, () => this.toScores());
+    this.phaseEndsAt = null; // niente timer: le pagine le sfoglia l'host
     this.touch();
   }
 
@@ -315,9 +316,16 @@ export class Room {
     this.touch();
   }
 
-  // "Avanti" dell'host: dalla domanda salta, dal reveal/classifica va alla prossima.
+  // "Avanti" dell'host: nel reveal gira pagina, dall'ultima pagina va alla classifica,
+  // dalla classifica (o saltando una domanda) va alla prossima.
   next() {
-    if (this.phase === 'question' || this.phase === 'reveal' || this.phase === 'scores') this.nextRound();
+    if (this.phase === 'reveal') {
+      if (this.revealStep < REVEAL_STEPS - 1) {
+        this.revealStep++;
+        this.phaseStartsAt = Date.now() + STEP_LEAD_MS;
+        this.touch();
+      } else this.toScores();
+    } else if (this.phase === 'question' || this.phase === 'scores') this.nextRound();
     else throw new GameError('nonext');
   }
 
@@ -390,6 +398,7 @@ export class Room {
       phase: this.phase,
       phaseStartsAt: this.phaseStartsAt,
       phaseEndsAt: this.phaseEndsAt,
+      revealStep: this.phase === 'reveal' ? this.revealStep : null,
       paused: this.paused,
       pauseReason: this.pauseReason,
       pausedRemaining: this.paused ? this.pausedRemaining : null,

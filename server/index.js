@@ -248,7 +248,11 @@ if (DEV) {
   if (fs.existsSync(dist)) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));
     const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-    app.use((req, res) => res.type('html').send(html));
+    // L'anteprima dei link (WhatsApp & co.) vuole URL assoluti: li completiamo col dominio della richiesta
+    app.use((req, res) => {
+      const origin = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`;
+      res.type('html').send(html.replaceAll('__ORIGIN__', origin));
+    });
   } else {
     console.warn('Manca client/dist: esegui prima `npm run build` (per ora gira solo il backend).');
   }

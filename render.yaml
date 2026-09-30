@@ -1,0 +1,12 @@
+# Render — alternativa gratuita. Il disco del piano free non è persistente: usa il backup "pack".
+services:
+  - type: web
+    name: valerio-beve
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

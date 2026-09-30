@@ -1,0 +1,22 @@
+# Fly.io — una sola macchina (lo stato della partita vive in memoria) + volume per foto e domande.
+app = "valerio-beve"
+primary_region = "fra"
+
+[env]
+  DATA_DIR = "/data"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # non spegnere il server a metà festa
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[mounts]]
+  source = "valerio_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

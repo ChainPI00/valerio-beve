@@ -72,11 +72,15 @@ function CodeStep({ onBack, onOk }) {
   const ref = useStagger([]);
   useEffect(() => { input.current?.focus(); }, []);
 
-  const change = async (v) => {
-    v = v.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+  const change = async (raw) => {
+    if (/\d/.test(raw)) {
+      setErr('Il codice stanza è di 4 lettere. Il PIN numerico serve solo per “Crea partita”.');
+      vibrate([40, 30, 40]);
+    }
+    let v = raw.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
     if (v.length > val.length) { sfx.pop(v.length * 3); vibrate(8); }
     setVal(v);
-    setErr('');
+    if (!/\d/.test(raw)) setErr('');
     if (v.length === 4) {
       setBusy(true);
       const res = await emit('room:check', { code: v });
@@ -130,6 +134,9 @@ function NameStep({ code, create, onBack }) {
   const [plays, setPlays] = useState(true);
   const [pin, setPin] = useState('');
   const [needPin, setNeedPin] = useState(false);
+  useEffect(() => {
+    if (create) emit('config').then((c) => c?.pinRequired && setNeedPin(true));
+  }, [create]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const preview = useRef(null);
@@ -193,7 +200,16 @@ function NameStep({ code, create, onBack }) {
         </label>
       )}
       {create && needPin && (
-        <input className="st big-input small" placeholder="PIN host" value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" />
+        <input
+          className="st big-input small"
+          placeholder="PIN host"
+          value={pin}
+          onChange={(e) => { setPin(e.target.value.replace(/\D/g, '')); setErr(''); }}
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          maxLength={8}
+        />
       )}
       {err && <p className="st hint is-error">{err}</p>}
       <div className="st btn-col">

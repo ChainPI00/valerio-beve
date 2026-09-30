@@ -109,6 +109,7 @@ io.on('connection', (socket) => {
   };
 
   socket.on('time', (_p, ack) => typeof ack === 'function' && ack(Date.now()));
+  socket.on('config', (_p, ack) => typeof ack === 'function' && ack({ pinRequired: !!HOST_PIN }));
 
   socket.on('room:create', guard(({ name, avatar, plays, pin }) => {
     if (HOST_PIN && String(pin || '') !== HOST_PIN) throw new GameError('pin');

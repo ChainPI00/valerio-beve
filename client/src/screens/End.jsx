@@ -9,6 +9,26 @@ import { Proclamation, PROCLAIM_S } from '../components/Proclamation.jsx';
 import { sfx } from '../lib/audio.js';
 import { burst } from '../lib/fx.js';
 
+// Conferma in due tempi: il secondo tocco vale solo dopo mezzo secondo (un doppio tocco non conferma)
+function ConfirmBtn({ label, confirm, onConfirm }) {
+  const [armedAt, setArmedAt] = useState(0);
+  const armed = armedAt > 0;
+  return (
+    <Btn
+      big
+      color={armed ? C.orange : C.yellow}
+      sound="boing"
+      onClick={() => {
+        if (!armed) { setArmedAt(Date.now()); setTimeout(() => setArmedAt(0), 4000); return; }
+        if (Date.now() - armedAt < 500) return;
+        onConfirm();
+      }}
+    >
+      {armed ? confirm : label}
+    </Btn>
+  );
+}
+
 export function End({ s, tv = false }) {
   const ref = useRef(null);
   const byId = Object.fromEntries(s.players.map((p) => [p.id, p]));
@@ -49,7 +69,7 @@ export function End({ s, tv = false }) {
         <Face expr="alloro" size={tv ? 150 : 96} className="breathe" />
         <span className="end-hero-text">
           <small>FINE PARTITA · 🎓</small>
-          <b>DOTT. {(valerio?.name || 'Valerio').toUpperCase()}</b>
+          <b>DOTT. {(s.valerioName || valerio?.name || 'Valerio').toUpperCase()}</b>
           <i>tocca per rivedere la proclamazione</i>
         </span>
       </button>
@@ -60,7 +80,7 @@ export function End({ s, tv = false }) {
               <div key={i} className={`pod pod-${i}`}>
                 {b && (
                   <div className="pod-av">
-                    <Avatar avatar={byId[b.id].avatar} size={tv ? 90 : i === 1 ? 66 : 52} crown={i === 1} name={byId[b.id].name} />
+                    <Avatar avatar={byId[b.id].avatar} size={tv ? 90 : i === 1 ? 66 : 52} crown={i === 1 ? 'king' : false} name={byId[b.id].name} />
                   </div>
                 )}
                 <div className="pod-col" style={{ '--c': [C.cyan, C.yellow, C.pink][i] }}>
@@ -101,7 +121,7 @@ export function End({ s, tv = false }) {
 
       {s.me?.isHost ? (
         <div className="btn-col">
-          <Btn big color={C.yellow} onClick={() => emit('host:restart')} sound="boing">RIGIOCA</Btn>
+          <ConfirmBtn label="RIGIOCA" confirm="Sicuro? Si azzera tutto" onConfirm={() => emit('host:restart')} />
         </div>
       ) : (
         !tv && <button className="link" onClick={leave}>esci dalla stanza</button>

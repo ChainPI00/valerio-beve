@@ -38,6 +38,14 @@ export const JOKES = {
   offline: 'Connessione persa… la cerchiamo come Valerio cerca il relatore.',
   server: 'Il server ha ceduto a fatica. Andava dimensionato meglio, ingegnere. Riprova.',
   upload: 'Upload fallito. La foto era troppo brutta anche per noi.',
+  hostpin: 'C’è già un host con questo nome. Se sei tu, metti il PIN; altrimenti scegli un altro nome.',
+  notnow: 'La corona si sposta tra un round e l’altro, dalla classifica.',
+  gone: 'La partita non c’è più. Chiedi all’host il codice e rientra.',
+  nokick: 'Questo non si può espellere.',
+  nokickvalerio: 'Valerio non si espelle: è la sua festa.',
+  noplayer: 'Giocatore non trovato (forse è uscito).',
+  stale: 'Già fatto.',
+  unbound: 'Un attimo, ti stiamo ricollegando… riprova.',
 };
 export const joke = (code) => JOKES[code] || JOKES.server;
 

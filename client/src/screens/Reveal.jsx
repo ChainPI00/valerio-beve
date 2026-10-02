@@ -7,8 +7,8 @@ import { Face } from '../components/Face.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { Rich, plain } from '../components/UI.jsx';
 import { C, pairColors, vibrate, motion } from '../lib/theme.js';
-import { serverNow, emit } from '../lib/net.js';
-import { sfx, atServer, music } from '../lib/audio.js';
+import { serverNow, emitReliable } from '../lib/net.js';
+import { sfx, atServer, music, createBus, withBus, closeBus } from '../lib/audio.js';
 import { burst, shake, loadImage, clearConfetti } from '../lib/fx.js';
 import { faceUrl } from '../components/Face.jsx';
 
@@ -87,7 +87,7 @@ export function Reveal({ s, tv = false }) {
       tl.set('.rv-verdict', { display: 'flex' }, T.verdict);
       if (lost) {
         const chaos = () => {
-          shake(shakeBox.current.parentElement, { intensity: 22 * (res.unanimous ? 1.4 : 1), duration: res.unanimous ? 2.2 : 1.5 });
+          shake(shakeBox.current?.parentElement, { intensity: 22 * (res.unanimous ? 1.4 : 1), duration: res.unanimous ? 2.2 : 1.5 });
           vibrate([300, 100, 300, 100, 700]);
           const colors = fate === 'drink' ? [C.siren, C.yellow, C.cream, C.pink] : [C.pink, C.cyan, C.yellow, C.cream];
           for (let i = 0; i < (res.unanimous ? 2 : 1); i++) {
@@ -141,14 +141,18 @@ export function Reveal({ s, tv = false }) {
     const at = (t) => atServer(st + t * 1000);
     const future = (t) => serverNow() < st + t * 1000 - 40;
 
-    if (future(T.face)) sfx.drumroll(at(T.face), T.stop - T.face);
-    if (future(T.stop)) sfx.thud(at(T.stop));
-    if (lost) {
-      if (future(T.verdict + 0.95)) fate === 'drink' ? sfx.drink(at(T.verdict + 0.95)) : sfx.penance(at(T.verdict + 0.95));
-      const letters = fate === 'drink' ? 11 : 10;
-      for (let i = 0; i < letters; i++) if (future(T.verdict + i * 0.085)) sfx.slam(at(T.verdict + i * 0.085));
-    } else if (future(T.verdict)) sfx.saved(at(T.verdict));
-    if (!tv && myBet && future(betT)) (myBet.correct ? sfx.chaching : sfx.sad)(at(betT));
+    // tutti i suoni del reveal passano da un bus che si chiude quando il reveal esce di scena
+    const bus = createBus();
+    withBus(bus, () => {
+      if (future(T.face)) sfx.drumroll(at(T.face), T.stop - T.face);
+      if (future(T.stop)) sfx.thud(at(T.stop));
+      if (lost) {
+        if (future(T.verdict + 0.95)) fate === 'drink' ? sfx.drink(at(T.verdict + 0.95)) : sfx.penance(at(T.verdict + 0.95));
+        const letters = fate === 'drink' ? 11 : 10;
+        for (let i = 0; i < letters; i++) if (future(T.verdict + i * 0.085)) sfx.slam(at(T.verdict + i * 0.085));
+      } else if (future(T.verdict)) sfx.saved(at(T.verdict));
+      if (!tv && myBet && future(betT)) (myBet.correct ? sfx.chaching : sfx.sad)(at(betT));
+    });
 
     const go = () => {
       const elapsed = Math.max(0, (serverNow() - st) / 1000);
@@ -156,11 +160,10 @@ export function Reveal({ s, tv = false }) {
       tl.seek(elapsed, true).play();
     };
     const wait = st - serverNow();
-    if (wait > 0) {
-      const id = setTimeout(go, wait);
-      return () => clearTimeout(id);
-    }
-    go();
+    let id = null;
+    if (wait > 0) id = setTimeout(go, wait);
+    else go();
+    return () => { clearTimeout(id); closeBus(bus); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.phaseStartsAt, r.index]);
 
@@ -216,7 +219,11 @@ export function Reveal({ s, tv = false }) {
             ))}
           </h1>
         </div>
-        {fate === 'penance' && <div className="rv-penance">{res.punishment.text}</div>}
+        {fate === 'penance' && (
+          <div className={`rv-penance ${res.punishment.text.length > 90 ? 'is-long' : res.punishment.text.length > 55 ? 'is-mid' : ''}`}>
+            {res.punishment.text}
+          </div>
+        )}
         <div className="rv-banner">{banner}</div>
         {res.onFire && <div className="rv-fire">🔥 IN FIAMME · {res.streak} DI FILA</div>}
         {meme && <img className="rv-meme" src={meme.url} alt={meme.name} />}
@@ -238,7 +245,8 @@ function NextButton() {
         if (busy.current) return;
         busy.current = true;
         sfx.click();
-        emit('host:next');
+        // se dopo i tentativi non è passato (rete assente), il bottone si riattiva
+        emitReliable('host:next', { expect: 'reveal' }).then((r) => { if (!r.ok && r.error !== 'stale') busy.current = false; });
       }}
     >
       CLASSIFICA ▶

@@ -2,7 +2,7 @@
 import { C, motion, reducedMotion } from './theme.js';
 
 const MAX = reducedMotion ? 60 : 150;
-let canvas, g, dpr, particles = [], raf = 0;
+let canvas, g, dpr, particles = [], raf = 0, lastT = 0;
 const imgCache = new Map();
 
 function ensure() {
@@ -57,24 +57,28 @@ export function burst({ x = 0.5, y = 0.5, count = 80, power = 1, spread = Math.P
       life: 0, max: 160 + Math.random() * 80, gravity,
     });
   }
-  if (!raf) raf = requestAnimationFrame(tick);
+  if (!raf) { lastT = performance.now(); raf = requestAnimationFrame(tick); }
 }
 
-function tick() {
+// Fisica a tempo reale (non a frame): stessa velocità su schermi a 60 e a 120 Hz
+function tick(now) {
+  const k = Math.min(3, Math.max(0.25, (now - lastT) / 16.67));
+  lastT = now;
   const W = canvas.width, H = canvas.height;
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.clearRect(0, 0, W, H);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   particles = particles.filter((p) => p.life < p.max && p.y < innerHeight + 120);
   for (const p of particles) {
-    p.life++;
-    p.vy += 0.32 * p.gravity;
-    p.vx *= 0.975;
-    p.vy *= 0.975;
-    p.x += p.vx;
-    p.y += p.vy;
-    p.r += p.vr;
-    p.tilt += p.vt;
+    p.life += k;
+    p.vy += 0.32 * p.gravity * k;
+    const drag = Math.pow(0.975, k);
+    p.vx *= drag;
+    p.vy *= drag;
+    p.x += p.vx * k;
+    p.y += p.vy * k;
+    p.r += p.vr * k;
+    p.tilt += p.vt * k;
     const fade = Math.min(1, (p.max - p.life) / 30);
     g.globalAlpha = fade;
     g.save();
@@ -124,16 +128,19 @@ export function shake(el, { intensity = 14, duration = 1.5 } = {}) {
 
 // Schermo sempre acceso durante la partita
 let lock = null;
+let asking = false;
 export async function keepAwake() {
+  if (lock || asking || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+  asking = true;
   try {
-    if ('wakeLock' in navigator && document.visibilityState === 'visible' && !lock) {
-      lock = await navigator.wakeLock.request('screen');
-      lock.addEventListener('release', () => { lock = null; });
-    }
-  } catch {}
+    lock = await navigator.wakeLock.request('screen');
+    lock.addEventListener('release', () => { lock = null; });
+  } catch {} finally { asking = false; }
 }
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+  // Safari concede il wake lock solo dentro un gesto: ci riproviamo a ogni tocco
+  for (const ev of ['touchend', 'click']) document.addEventListener(ev, () => keepAwake(), { passive: true, capture: true });
 }
 
 // Immagini scalate e (se senza trasparenza) ritagliate a sticker prima dell'upload

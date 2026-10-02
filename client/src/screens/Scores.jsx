@@ -4,7 +4,7 @@ import { Avatar } from '../components/Avatar.jsx';
 import { Face } from '../components/Face.jsx';
 import { Btn, plain } from '../components/UI.jsx';
 import { C, motion } from '../lib/theme.js';
-import { emit } from '../lib/net.js';
+import { emitReliable } from '../lib/net.js';
 import { sfx } from '../lib/audio.js';
 
 // Mini classifica tra un round e l'altro
@@ -26,7 +26,14 @@ export function Scores({ s, tv = false }) {
     return () => ctx.revert();
   }, []);
 
-  const next = () => { sfx.whoosh(); emit('host:next'); };
+  // un solo invio anche con doppio tocco; il server comunque ignora un "avanti" di una fase già passata
+  const sent = useRef(false);
+  const next = () => {
+    if (sent.current) return;
+    sent.current = true;
+    sfx.whoosh();
+    emitReliable('host:next', { expect: 'scores' }).then((r) => { if (!r.ok && r.error !== 'stale') sent.current = false; });
+  };
 
   return (
     <div className={`screen scores ${tv ? 'is-tv' : ''}`} ref={ref}>
@@ -35,7 +42,7 @@ export function Scores({ s, tv = false }) {
         {top.map((b, i) => (
           <li key={b.id} className={`sc-row ${s.me?.id === b.id ? 'is-me' : ''}`} style={{ '--c': [C.yellow, C.cyan, C.pink][i] || C.cream }}>
             <span className="sc-rank">{i + 1}</span>
-            <Avatar avatar={byId[b.id].avatar} size={tv ? 56 : 40} crown={i === 0 && b.score > 0} />
+            <Avatar avatar={byId[b.id].avatar} size={tv ? 56 : 40} crown={i === 0 && b.score > 0 ? 'king' : false} />
             <span className="sc-name">{byId[b.id].name}</span>
             <b className="sc-score">{b.score}</b>
           </li>

@@ -48,10 +48,19 @@ export function Home({ initialCode }) {
   );
 }
 
+// Browser interni delle app (Instagram, Facebook, TikTok…): memoria separata e niente schermo sempre acceso.
+// Meglio aprire il gioco nel browser vero, prima di entrare.
+const IN_APP = typeof navigator !== 'undefined' && /Instagram|FBAN|FBAV|FB_IAB|FBIOS|Line\/|TikTok|musical_ly|Snapchat|Twitter/i.test(navigator.userAgent);
+
 function Menu({ onJoin, onCreate }) {
   const ref = useStagger([]);
   return (
     <div className="stack center grow" ref={ref}>
+      {IN_APP && (
+        <div className="st inapp-tip">
+          Stai usando il browser di un’app: tocca <b>⋯</b> e scegli <b>Apri nel browser</b> (Safari/Chrome), così non perdi la partita.
+        </div>
+      )}
       <div className="st grow center-v"><Logo /></div>
       <p className="st tagline">Il gioco ufficiale della laurea.<br />Se sbaglia, beve.</p>
       <div className="st btn-col">
@@ -96,7 +105,7 @@ function CodeStep({ onBack, onOk }) {
   };
 
   return (
-    <div className="stack center grow" ref={ref} onClick={() => input.current?.focus()}>
+    <div className="stack center grow code-step" ref={ref} onClick={() => input.current?.focus()}>
       <BackBtn onClick={onBack} />
       <h1 className="st title outline tilt-l">CODICE<br />STANZA</h1>
       <div className="st code-boxes" ref={boxes}>
@@ -139,6 +148,7 @@ function NameStep({ code, create, onBack }) {
   }, [create]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [same, setSame] = useState(null); // c'è già qualcuno con questo nome, scollegato: "sei tu?"
   const preview = useRef(null);
   const ref = useStagger([]);
 
@@ -149,15 +159,18 @@ function NameStep({ code, create, onBack }) {
     gsap.fromTo(preview.current.firstChild, { scale: 0.7, rotate: -12 }, { scale: 1, rotate: 0, duration: 0.6, ease: 'elastic.out(1.1, 0.4)' });
   };
 
-  const go = async () => {
+  const go = async (reclaim) => {
     unlockAudio();
     if (!name.trim()) { setErr(joke('noname')); sfx.sad(); return; }
     setBusy(true);
     try { localStorage.setItem('vb:name', name.trim()); localStorage.setItem('vb:avatar', JSON.stringify(avatar)); } catch {}
-    const res = create ? await createRoom({ name, avatar, plays, pin }) : await joinRoom({ code, name, avatar });
+    const res = create
+      ? await createRoom({ name, avatar, plays, pin })
+      : await joinRoom({ code, name, avatar, pin, ...(typeof reclaim === 'boolean' ? { reclaim } : {}) });
     setBusy(false);
     if (!res.ok) {
-      if (res.error === 'pin') setNeedPin(true);
+      if (res.error === 'samename' && res.other) { setSame(res.other); setErr(''); sfx.boing(); return; }
+      if (res.error === 'pin' || res.error === 'hostpin') setNeedPin(true);
       setErr(joke(res.error));
       sfx.sad();
     }
@@ -175,15 +188,15 @@ function NameStep({ code, create, onBack }) {
         placeholder="Il tuo nome"
         value={name}
         maxLength={16}
-        onChange={(e) => { setName(e.target.value); setErr(''); }}
-        onKeyDown={(e) => e.key === 'Enter' && go()}
+        onChange={(e) => { setName(e.target.value); setErr(''); setSame(null); }}
+        onKeyDown={(e) => e.key === 'Enter' && !same && go()}
         autoComplete="off"
         enterKeyHint="go"
       />
       <div className="st picker">
         {SHAPES.map((s) => (
           <button key={s} className={`pick ${avatar.shape === s ? 'is-on' : ''}`} onClick={() => pick({ shape: s })} aria-label={s}>
-            <Avatar avatar={{ shape: s, color: avatar.color }} size={40} />
+            <Avatar avatar={{ shape: s, color: avatar.color }} size={36} />
           </button>
         ))}
       </div>
@@ -199,7 +212,7 @@ function NameStep({ code, create, onBack }) {
           <span>Gioco anch’io (non solo regia)</span>
         </label>
       )}
-      {create && needPin && (
+      {needPin && (
         <input
           className="st big-input small"
           placeholder="PIN host"
@@ -212,11 +225,22 @@ function NameStep({ code, create, onBack }) {
         />
       )}
       {err && <p className="st hint is-error">{err}</p>}
-      <div className="st btn-col">
-        <Btn big color={create ? C.pink : C.cyan} onClick={go} disabled={busy} sound="boing">
-          {create ? 'CREA' : 'DENTRO!'}
-        </Btn>
-      </div>
+      {same ? (
+        <div className="same-card">
+          <Avatar avatar={same.avatar} size={56} />
+          <p>In partita c’è già <b>{same.name}</b> ({same.score} {same.score === 1 ? 'punto' : 'punti'}), ma il suo telefono è scollegato. <b>Sei tu?</b></p>
+          <div className="same-actions">
+            <Btn color={C.cyan} onClick={() => go(true)} disabled={busy} sound="boing">Sì, sono io</Btn>
+            <Btn color={C.cream} onClick={() => go(false)} disabled={busy}>No, sono un altro</Btn>
+          </div>
+        </div>
+      ) : (
+        <div className="st btn-col">
+          <Btn big color={create ? C.pink : C.cyan} onClick={() => go()} disabled={busy} sound="boing">
+            {create ? 'CREA' : 'DENTRO!'}
+          </Btn>
+        </div>
+      )}
       {!create && <p className="st hint">Stanza <b className="mono">{code}</b></p>}
     </div>
   );

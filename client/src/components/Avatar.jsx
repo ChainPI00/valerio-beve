@@ -38,7 +38,10 @@ export function Avatar({ avatar, size = 56, name, dim = false, mood = 'ok', crow
             <path d={`M42 ${eyeY + 13} Q50 ${eyeY + 20} 58 ${eyeY + 13}`} stroke={C.ink} strokeWidth="4.5" strokeLinecap="round" fill="none" />
           </g>
         )}
-        {crown && (
+        {crown === 'king' && (
+          <path d="M28 4 L36 -14 L50 0 L64 -14 L72 4 Z" fill={C.yellow} stroke={C.ink} strokeWidth="5" strokeLinejoin="round" transform="translate(0 -4)" />
+        )}
+        {crown === true && (
           <g>
             {laurelBranch({ cx: 50, cy: 50, rx: 50, ry: 50, from: 200, to: 262, n: 4, scale: 0.72, key: 'al' })}
             {laurelBranch({ cx: 50, cy: 50, rx: 50, ry: 50, from: -20, to: -82, n: 4, scale: 0.72, key: 'ar' })}

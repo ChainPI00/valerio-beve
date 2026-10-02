@@ -5,7 +5,7 @@ import gsap from 'gsap';
 import { Face, CrownOverlay, LAUREL } from './Face.jsx';
 import { C, vibrate } from '../lib/theme.js';
 import { serverNow } from '../lib/net.js';
-import { sfx, atServer, music } from '../lib/audio.js';
+import { sfx, atServer, music, createBus, withBus, closeBus } from '../lib/audio.js';
 import { burst } from '../lib/fx.js';
 
 export const PROCLAIM_S = 8.8;
@@ -29,7 +29,7 @@ function cap() {
 export function Proclamation({ s, startsAt, tv = false, onDone }) {
   const ref = useRef(null);
   const valerio = s.players.find((p) => p.id === s.valerioId);
-  const name = (valerio?.name || 'Valerio').toUpperCase();
+  const name = (s.valerioName || valerio?.name || 'Valerio').toUpperCase();
   const meta = s.library?.meta || {};
   const fin = s.final || {};
   const drinks = fin.drinks ?? s.drinks ?? 0;
@@ -39,22 +39,25 @@ export function Proclamation({ s, startsAt, tv = false, onDone }) {
   const crownPhoto = !faces.alloro;
   const faceExpr = faces.alloro ? 'alloro' : 'felice';
   const hasPhoto = !!(faces.felice || faces.neutro);
-  const faceSize = tv ? Math.min(300, innerHeight * 0.3) : Math.min(190, innerHeight * 0.24);
+  const faceSize = tv ? Math.min(300, innerHeight * 0.3) : Math.min(190, innerHeight * 0.21);
 
   useLayoutEffect(() => {
     const at = (t) => atServer(startsAt + t * 1000);
     const future = (t) => serverNow() < startsAt + t * 1000 - 40;
     const caps = [cap()];
 
-    if (future(0)) sfx.drumroll(at(0), 1.3);
-    if (future(1.3) && !crownPhoto) sfx.thud(at(1.3));
-    if (crownPhoto) {
-      if (future(1.1)) sfx.whoosh(at(1.1));
-      if (future(1.75)) { sfx.thud(at(1.75)); sfx.crown(at(1.75)); }
-    }
-    for (let i = 0; i < name.length + 6; i++) if (future(2.2 + i * 0.07)) sfx.slam(at(2.2 + i * 0.07));
-    if (future(3.4)) { sfx.fanfare(at(3.4)); sfx.roar(at(3.5), 3); }
-    if (future(4.8)) sfx.chant(at(4.8));
+    const bus = createBus(); // se la proclamazione viene saltata, i suoni si fermano con lei
+    withBus(bus, () => {
+      if (future(0)) sfx.drumroll(at(0), 1.3);
+      if (future(1.3) && !crownPhoto) sfx.thud(at(1.3));
+      if (crownPhoto) {
+        if (future(1.1)) sfx.whoosh(at(1.1));
+        if (future(1.75)) { sfx.thud(at(1.75)); sfx.crown(at(1.75)); }
+      }
+      for (let i = 0; i < name.length + 6; i++) if (future(2.2 + i * 0.07)) sfx.slam(at(2.2 + i * 0.07));
+      if (future(3.4)) { sfx.fanfare(at(3.4)); sfx.roar(at(3.5), 3); }
+      if (future(4.8)) sfx.chant(at(4.8));
+    });
 
     music.hold('proclaim');
     const ctx = gsap.context(() => {
@@ -96,7 +99,7 @@ export function Proclamation({ s, startsAt, tv = false, onDone }) {
       }
       tl.seek(elapsed, true).play();
     }, ref);
-    return () => { ctx.revert(); music.release('proclaim'); };
+    return () => { ctx.revert(); closeBus(bus); music.release('proclaim'); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startsAt]);
 

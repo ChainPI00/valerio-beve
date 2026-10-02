@@ -12,11 +12,17 @@ const PORT = 3999;
 const URL = `http://localhost:${PORT}`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vb-test-'));
 
-const server = spawn(process.execPath, ['server/index.js'], {
-  env: { ...process.env, PORT, DATA_DIR: dataDir, HOST_GRACE_MS: '200', HOST_PIN: '' },
-  stdio: ['ignore', 'pipe', 'inherit'],
-});
-await new Promise((res) => server.stdout.on('data', (d) => String(d).includes('Valerio Beve') && res()));
+async function startServer() {
+  const child = spawn(process.execPath, ['server/index.js'], {
+    env: { ...process.env, PORT, DATA_DIR: dataDir, HOST_GRACE_MS: '200', HOST_PIN: '' },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  let out = '';
+  await new Promise((res) => child.stdout.on('data', (d) => { out += d; if (out.includes('Valerio Beve')) res(); }));
+  child.stdout.on('data', () => {});
+  return child;
+}
+let server = await startServer();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let passed = 0;
@@ -29,9 +35,11 @@ class Bot {
     this.connect();
   }
   connect() {
-    this.socket = io(URL, { transports: ['websocket'], forceNew: true });
+    this.socket = io(URL, { transports: ['websocket'], forceNew: true, reconnectionDelay: 300, reconnectionDelayMax: 1000 });
     this.socket.on('state', (s) => { this.state = s; });
-    return new Promise((r) => this.socket.on('connect', r));
+    // come il vero client: dopo una riconnessione rientra da solo col token
+    this.socket.on('connect', () => { if (this.autoResume && this.token) this.emit('room:resume', { code: this.code, token: this.token }); });
+    return new Promise((r) => this.socket.once('connect', r));
   }
   emit(ev, payload = {}) {
     return new Promise((r) => this.socket.emit(ev, payload, r));
@@ -240,6 +248,7 @@ try {
   const lateBot = new Bot('Ritardatario');
   await sleep(150);
   const lj = await lateBot.emit('room:join', { code, name: 'Ritardatario' });
+  lateBot.token = lj.token;
   assert.ok(lj.ok);
   await until(() => lateBot.state?.phase === 'question', 'late state');
   assert.equal(lateBot.me.eligible, false);
@@ -311,6 +320,156 @@ try {
   assert.ok(board.every((b, i, a) => i === 0 || a[i - 1].score >= b.score));
   assert.ok(!board.some((b) => b.id === valerioId));
   ok('classifica scommettitori ordinata, Valerio escluso');
+
+  // --- doppio tocco dell'host: nessuna domanda saltata ---
+  await host.emit('host:restart');
+  await until(() => host.state.phase === 'lobby', 'lobby');
+  await host.emit('host:start');
+  await until(() => host.state.phase === 'question', 'nuova partita');
+  {
+    const round = host.state.round.index;
+    for (const b of others) { await b.emit('vote', { round, choice: 'x' }); await b.emit('bet', { round, bet: 'safe' }); }
+    await valerio.emit('vote', { round, choice: 'x' });
+    await until(() => host.state.phase === 'reveal', 'reveal');
+    await Promise.all([host.emit('host:next', { expect: 'reveal' }), host.emit('host:next', { expect: 'reveal' })]);
+    await until(() => host.state.phase === 'scores', 'classifica');
+    const r1 = await host.emit('host:next', { expect: 'scores' });
+    const r2 = await host.emit('host:next', { expect: 'scores' });
+    assert.ok(r1.ok);
+    assert.equal(r2.error, 'stale');
+    await until(() => host.state.phase === 'question', 'domanda 2');
+    await sleep(200);
+    assert.equal(host.state.round.index, round + 1);
+    ok('doppio tocco dell\'host su AVANTI/PROSSIMA: nessuna domanda saltata');
+  }
+
+  // --- telefono cambiato: si rientra col proprio nome ---
+  {
+    const victim = friends[2];
+    const id = victim.me.id;
+    const name = host.state.players.find((p) => p.id === id).name;
+    const token = victim.token;
+    const count = host.state.players.length;
+    victim.socket.disconnect();
+    await until(() => !host.state.players.find((p) => p.id === id).connected, 'scollegato');
+    const nb = new Bot('nuovo telefono');
+    await sleep(200);
+    // prima il server chiede "sei tu?" (potrebbe essere un altro con lo stesso nome)
+    const ask = await nb.emit('room:join', { code, name: name.toUpperCase() });
+    assert.equal(ask.error, 'samename');
+    assert.equal(ask.other.name, name);
+    // "No, sono un altro": entra come nuovo giocatore con il suffisso
+    const other = new Bot('omonimo');
+    await sleep(200);
+    const ro = await other.emit('room:join', { code, name, reclaim: false });
+    assert.ok(ro.ok && !ro.reclaimed);
+    await until(() => other.me && other.me.id !== id, 'omonimo nuovo');
+    assert.ok(host.state.players.some((p) => p.name === `${name} 2`));
+    ok('stesso nome di uno scollegato: "sei tu?" → "no" = nuovo giocatore, niente fusioni');
+    await host.emit('host:kick', { playerId: other.me.id });
+    other.socket.disconnect();
+    const r = await nb.emit('room:join', { code, name: name.toUpperCase(), reclaim: true });
+    assert.ok(r.ok && r.reclaimed);
+    assert.equal(r.token, token);
+    nb.token = token;
+    await until(() => nb.me?.id === id, 'stesso giocatore');
+    assert.equal(host.state.players.length, count);
+    friends[2] = nb;
+    everyone[everyone.indexOf(victim)] = nb;
+    others[others.indexOf(victim)] = nb;
+    ok('telefono cambiato: "sei tu?" → "sì" = rientra col suo nome, posto e punti');
+
+    // l'host senza PIN configurato non si può "rubare" col nome
+    const hostName = host.state.players.find((p) => p.id === host.state.hostId).name;
+    host.socket.disconnect();
+    await until(() => !friends[0].state.players.find((p) => p.id === friends[0].state.hostId).connected, 'host offline');
+    const thief = new Bot('ladro');
+    await sleep(200);
+    const rt = await thief.emit('room:join', { code, name: hostName, reclaim: true });
+    assert.ok(rt.ok && !rt.reclaimed);
+    await until(() => thief.me, 'ladro dentro');
+    assert.equal(thief.me.isHost, false);
+    ok('nessuno diventa host scrivendo il suo nome');
+    await host.connect();
+    assert.ok((await host.emit('room:resume', { code, token: host.token })).ok);
+    await until(() => host.me?.isHost && !host.state.paused, 'host di nuovo dentro');
+    await host.emit('host:kick', { playerId: thief.me.id });
+    thief.socket.disconnect();
+
+    // il voto di chi viene espulso non conta
+    const round = host.state.round.index;
+    const kickMe = new Bot('Espulso');
+    await sleep(200);
+    await kickMe.emit('room:join', { code, name: 'Espulso' });
+    await until(() => kickMe.me, 'espulso dentro');
+    // entra a domanda in corso: non vota questo round. Basta verificare che un voto rifiutato non resti
+    const kv = await kickMe.emit('vote', { round, choice: 'x' });
+    assert.equal(kv.accepted, false);
+    await host.emit('host:kick', { playerId: kickMe.me.id });
+    kickMe.socket.disconnect();
+    // pausa manuale accettata solo durante la domanda
+    assert.ok((await host.emit('host:pause')).ok);
+    assert.ok((await host.emit('host:resume')).ok);
+    ok('pausa e ripresa della regia');
+  }
+
+  // --- telefono di Valerio morto: non si ruba il ruolo, l'host sposta la corona ---
+  let v2;
+  {
+    valerio.socket.disconnect();
+    await until(() => !host.state.players.find((p) => p.id === valerioId).connected, 'valerio offline');
+    v2 = new Bot('Valerio');
+    await sleep(200);
+    const r = await v2.emit('room:join', { code, name: 'Valerio' });
+    assert.ok(r.ok && !r.reclaimed);
+    v2.token = r.token;
+    await until(() => v2.me, 'v2 dentro');
+    assert.notEqual(v2.me.id, valerioId);
+    const notNow = await host.emit('host:valerio', { playerId: v2.me.id });
+    assert.equal(notNow.error, 'notnow');
+    const round = host.state.round.index;
+    for (const b of others) { await b.emit('vote', { round, choice: 'y' }); await b.emit('bet', { round, bet: 'lose' }); }
+    await until(() => host.state.phase === 'reveal', 'reveal col timer', 15000);
+    await host.emit('host:next', { expect: 'reveal' });
+    await until(() => host.state.phase === 'scores', 'classifica');
+    const lateP = await host.emit('host:pause');
+    assert.equal(lateP.error, 'stale');
+    ok('una "pausa" arrivata fuori dalla domanda viene ignorata (niente pausa bloccata)');
+    assert.ok((await host.emit('host:valerio', { playerId: v2.me.id })).ok);
+    await until(() => host.state.valerioId === v2.me.id, 'corona spostata');
+    await host.emit('host:next', { expect: 'scores' });
+    await until(() => v2.state?.phase === 'question' && v2.me.isValerio && v2.me.eligible, 'nuovo valerio in gioco');
+    assert.equal(host.state.valerioName, 'Valerio');
+    ok('telefono di Valerio morto: l\'host gli sposta la corona tra un round e l\'altro');
+  }
+
+  // --- il server si riavvia a metà domanda: si riprende da dove si era ---
+  {
+    const bots = [...others, v2];
+    for (const b of bots) { b.code = code; b.autoResume = true; }
+    const round = host.state.round.index;
+    for (const b of others.slice(0, 5)) await b.emit('vote', { round, choice: 'y' });
+    await until(() => host.state.round.voted.length >= 5, 'voti prima del riavvio');
+    const board = JSON.stringify(host.state.leaderboard);
+    const voted = [...host.state.round.voted].sort().join();
+    await sleep(1400); // il salvataggio su disco avviene al massimo una volta al secondo
+    const killedAt = Date.now();
+    server.kill();
+    await new Promise((r) => server.once('exit', r));
+    server = await startServer();
+    await until(() => host.state?.serverNow > killedAt && host.socket.connected, 'host rientrato dopo il riavvio', 20000);
+    await until(() => bots.every((b) => b.state?.serverNow > killedAt), 'tutti rientrati', 20000);
+    assert.equal(host.state.phase, 'question');
+    assert.equal(host.state.round.index, round);
+    assert.equal([...host.state.round.voted].sort().join(), voted);
+    assert.equal(JSON.stringify(host.state.leaderboard), board);
+    assert.ok(host.state.phaseEndsAt - host.state.serverNow > 5000, 'tempo per rientrare');
+    for (const b of others.slice(5)) await b.emit('vote', { round, choice: 'x' });
+    await v2.emit('vote', { round, choice: 'x' });
+    for (const b of others) await b.emit('bet', { round, bet: 'lose' });
+    await until(() => host.state.phase === 'reveal', 'il round si chiude dopo il riavvio', 20000);
+    ok('server riavviato a metà domanda: tutti rientrano da soli, voti e punti intatti');
+  }
 
   // --- libreria ---
   const lib = await host.emit('library:op', { type: 'setQuestions', questions: [{ x: 'A', y: 'B' }, { x: '', y: 'no' }] });

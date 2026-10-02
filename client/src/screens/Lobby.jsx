@@ -9,6 +9,8 @@ import { emit, leave } from '../lib/net.js';
 import { sfx } from '../lib/audio.js';
 import { loadImage } from '../lib/fx.js';
 
+const IS_IPHONE = typeof navigator !== 'undefined' && /iP(hone|od)/.test(navigator.userAgent);
+
 // Sticker dei giocatori che cadono e rimbalzano quando entrano
 export function PlayerStickers({ players, valerioId, hostId, onTap, size = 58, seen }) {
   const ref = useRef(null);
@@ -62,8 +64,11 @@ export function Lobby({ s }) {
     (s.library?.memes || []).forEach((m) => loadImage(m.url));
   }, [s.library]);
 
+  const lastCrown = useRef(0);
   const crown = async (p) => {
     if (!p.plays) return;
+    if (Date.now() - lastCrown.current < 900) return; // un doppio tocco non deve togliere la corona appena data
+    lastCrown.current = Date.now();
     sfx.boing();
     vibrate(20);
     const r = await emit('host:valerio', { playerId: p.id });
@@ -123,6 +128,7 @@ export function Lobby({ s }) {
       />
 
       {err && <p className="hint is-error">{err}</p>}
+      {IS_IPHONE && <p className="hint small silent-tip">🔕 iPhone: togli il silenzioso (tasto laterale) per sentire sirene e musica</p>}
 
       {me.isHost ? (
         <div className="st host-dock">

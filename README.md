@@ -98,7 +98,7 @@ Comando di build `npm ci && npm run build`, comando di avvio `npm start`. Serve 
 |---|---|---|
 | `PORT` | `3000` | porta HTTP |
 | `DATA_DIR` | `./data` | dove salvare libreria, foto e meme |
-| `HOST_PIN` | vuoto | se impostato, serve questo PIN per creare una partita (così gli invitati non possono aprire stanze) |
+| `HOST_PIN` | vuoto | se impostato, serve questo PIN per creare una partita e per riprendersi il posto di host da un altro telefono |
 
 ## Test
 
@@ -106,22 +106,31 @@ Comando di build `npm ci && npm run build`, comando di avvio `npm start`. Serve 
 npm test
 ```
 
-Il test avvia un server vero e simula una serata con 20 client finti. Verifica:
+`test/unit.js` controlla i casi limite della logica di gioco; `test/simulate.js` avvia un server vero e simula una serata con 20 client finti. Verifica:
 - nomi doppi, voti, scommesse e punti;
 - maggioranza, minoranza, pareggio e unanimità;
 - voti arrivati in ritardo, streak, reveal programmato nel futuro;
 - telefono bloccato che si riconnette a metà round;
 - host che esce (pausa) e rientra (ripresa);
 - ritardatari, espulsioni;
-- una maratona di 30 round senza errori.
+- una maratona di 30 round senza errori;
+- doppio tocco dell'host, rientro col nome ("sei tu?"), corona spostata, pausa;
+- **server spento e riacceso a metà domanda**: tutti rientrano da soli con voti e punti intatti.
 
 ## Come funziona
 
 - **Server** (`server/`): Node + Express + Socket.io. Lo stato della partita è autoritativo e sta in memoria (`game.js`). Il server decide fasi, timer e risultati; i client mostrano soltanto quello che ricevono. Gli invii sono raggruppati ogni 40 ms.
 - **Sincronizzazione**: all'ingresso ogni client stima l'offset del proprio orologio rispetto al server (6 ping, tiene quello con RTT minore). Ogni fase arriva con il timestamp di inizio. Il reveal è programmato 500 ms nel futuro, così arriva a tutti prima di partire. Le animazioni sono una timeline GSAP agganciata a quel timestamp e i suoni sono schedulati sul clock Web Audio: chi si collega a metà salta al punto giusto.
 - **Riconnessione**: un token in `localStorage` riporta il telefono nella stessa partita, con lo stesso nome e nella fase corrente. Se l'host sparisce per più di 3 secondi la partita va in pausa e riprende quando rientra.
+- **Robustezza per la serata**:
+  - le partite vengono salvate su disco ogni secondo: se il server si riavvia, tutti rientrano da soli dove erano (voti e punti compresi);
+  - voti, scommesse e comandi dell'host vengono reinviati se la rete salta; i comandi dell'host sono legati alla fase, così un doppio tocco non salta una domanda;
+  - chi cambia telefono rientra col suo nome (dopo un "Sei tu?"); l'host col PIN; la corona di Valerio si sposta dalla regia tra un round e l'altro;
+  - errori di una schermata → messaggio "Ops!" e ricarica automatica; gli errori dei telefoni finiscono nei log del server;
+  - una scheda vecchia (aperta prima di un aggiornamento) si ricarica da sola.
+- **Guida per la serata**: [SERATA.md](SERATA.md) (checklist, cosa fare se succede qualcosa, piano B).
 - **Client** (`client/`): React + Vite + GSAP. I coriandoli sono disegnati su canvas (massimo 150 particelle) e le animazioni usano solo transform e opacity. Il Wake Lock tiene lo schermo acceso. Con `prefers-reduced-motion` le animazioni si riducono, senza sparire.
-- **Audio**: tutto sintetizzato con Web Audio (pop, boing, tic-tac, rullo, sirena, clacson, coro, cha-ching, trombone triste, fanfara). Non ci sono file da scaricare né licenze da gestire. Il primo tocco sblocca l'audio e un tasto muto resta sempre visibile.
+- **Audio**: tutto sintetizzato con Web Audio (pop, boing, tic-tac, rullo, sirena, clacson, coro, cha-ching, trombone triste, fanfara, musica di sottofondo sincronizzata). Non ci sono file da scaricare né licenze da gestire. Sui telefoni l'audio si mescola con la musica di altre app (Spotify non si ferma); con l'iPhone in silenzioso non si sente. Il primo tocco sblocca l'audio; tasti muto e musica sempre visibili.
 
 ## Checklist pre-festa
 

@@ -23,6 +23,15 @@ export function TvJoin({ initialCode }) {
     const res = await joinScreen(c.toUpperCase());
     if (!res.ok) setErr(joke(res.error));
   };
+  // Se la TV ricarica la pagina (/tv/CODICE) rientra da sola; l'audio lo riattiva un clic quando serve
+  const tried = useRef(false);
+  const connected = useStore((s) => s.connected);
+  useEffect(() => {
+    if (!initialCode || tried.current || !connected) return;
+    tried.current = true;
+    setBigScreen(true);
+    joinScreen(initialCode).then((res) => { if (!res.ok) setErr(joke(res.error)); });
+  }, [initialCode, connected]);
   return (
     <div className="screen tv-join">
       <Logo size={1.6} />
@@ -72,7 +81,7 @@ export function TvLobby({ s }) {
       </div>
       <div className="tv-lobby-right">
         <Face expr="alloro" size={260} className="breathe" />
-        <h1 className="title outline tv-title">{valerio ? `${valerio.name.toUpperCase()} BEVE?` : 'VALERIO BEVE'}</h1>
+        <h1 className="title outline tv-title">{valerio ? `${(s.valerioName || valerio.name).toUpperCase()} BEVE?` : 'VALERIO BEVE'}</h1>
         <p className="hint">{s.players.length} {s.players.length === 1 ? 'giocatore' : 'giocatori'} · {s.questionCount} domande</p>
         <PlayerStickers players={s.players} valerioId={s.valerioId} hostId={s.hostId} size={78} />
       </div>

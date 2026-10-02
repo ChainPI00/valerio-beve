@@ -8,7 +8,7 @@
     "dev": "node server/index.js --dev",
     "build": "vite build client",
     "start": "NODE_ENV=production node server/index.js",
-    "test": "node test/simulate.js",
+    "test": "node test/unit.js && node test/simulate.js",
     "bots": "node test/bots.js"
   },
   "engines": {
@@ -19,6 +19,8 @@
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
+    "@fontsource/bagel-fat-one": "^5.3.0",
+    "@fontsource/space-grotesk": "^5.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "gsap": "^3.15.0",
     "qrcode": "^1.5.4",

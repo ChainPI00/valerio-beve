@@ -5,12 +5,23 @@ export const REVEAL_LEAD_MS = 500; // ritardo programmato: tutti ricevono l'even
 export const REVEAL_STEPS = 1; // il reveal scorre tutto di fila e si ferma sull'esito; AVANTI porta alla classifica
 const STEP_LEAD_MS = 350; // ogni pagina parte un filo nel futuro, così arriva a tutti prima di iniziare
 const HOST_GRACE_MS = Number(process.env.HOST_GRACE_MS || 3000);
-export const MAX_PLAYERS = 30;
+const RESTORE_GRACE_MS = 15000; // dopo un riavvio del server, tempo minimo per ricollegarsi e votare
+export const MAX_PLAYERS = 40; // margine se alla festa arriva più gente del previsto
 export const COLOR_PAIRS = 6; // coppie di colori X/Y, il client le mappa sulla palette
 
 const token = () => crypto.randomBytes(16).toString('base64url');
 const pid = () => crypto.randomBytes(5).toString('base64url');
-const cleanName = (s) => String(s ?? '').replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+// Array.from: non spezza le emoji (coppie surrogate) quando si taglia a 16 caratteri
+const cut = (s, n) => Array.from(s).slice(0, n).join('');
+const cleanName = (s) => cut(String(s ?? '').replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim(), 16).trim();
+export const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+// Un errore dentro un timer farebbe cadere tutto il processo: lo logghiamo e andiamo avanti
+function safe(fn, label) {
+  return () => {
+    try { fn(); } catch (err) { console.error(`[timer ${label}]`, err); }
+  };
+}
 
 const SHAPES = ['blob', 'star', 'flower', 'squircle', 'triangle', 'ghost'];
 const COLORS = ['pink', 'yellow', 'cyan', 'orange', 'cream'];
@@ -33,7 +44,9 @@ export class Room {
     this.sockets = new Map(); // socketId -> { playerId | null, screen: bool }
     this.hostId = null;
     this.valerioId = null;
+    this.valerioName = null; // resta "Valerio" anche se la corona passa a "Valerio 2" (telefono cambiato)
     this.settings = { voteSeconds: 25 };
+    this.restoredUntil = 0;
     this.lastActivity = Date.now();
     this.hostGraceTimer = null;
     this.reset();
@@ -70,7 +83,7 @@ export class Room {
     const taken = new Set([...this.players.values()].map((p) => p.name.toLowerCase()));
     if (!taken.has(name.toLowerCase())) return name;
     for (let i = 2; ; i++) {
-      const candidate = `${name.slice(0, 13)} ${i}`;
+      const candidate = `${cut(name, 13)} ${i}`;
       if (!taken.has(candidate.toLowerCase())) return candidate;
     }
   }
@@ -93,6 +106,17 @@ export class Room {
     if (isHost) this.hostId = p.id;
     this.touch();
     return p;
+  }
+
+  // Chi ha perso la sessione (telefono cambiato, cronologia cancellata) può rientrare col suo nome
+  // e riprendere posto e punti. Solo se quel giocatore è scollegato; la conferma la chiede index.js.
+  findReclaimable(name) {
+    const n = cleanName(name);
+    if (!n) return null;
+    for (const p of this.players.values()) {
+      if (sameName(p.name, n) && !this.isConnected(p.id)) return p;
+    }
+    return null;
   }
 
   byToken(t) {
@@ -120,11 +144,11 @@ export class Room {
     this.sockets.delete(socketId);
     if (view.playerId === this.hostId && !this.isConnected(this.hostId)) {
       clearTimeout(this.hostGraceTimer);
-      this.hostGraceTimer = setTimeout(() => {
+      this.hostGraceTimer = setTimeout(safe(() => {
         if (!this.isConnected(this.hostId) && !this.paused && this.phase !== 'lobby' && this.phase !== 'end') {
           this.pause('host');
         }
-      }, HOST_GRACE_MS);
+      }, 'host-grace'), HOST_GRACE_MS);
     }
     this.maybeClose();
     this.touch();
@@ -135,18 +159,29 @@ export class Room {
     if (!p || p.id === this.hostId) throw new GameError('nokick');
     if (p.id === this.valerioId && this.phase !== 'lobby') throw new GameError('nokickvalerio');
     this.players.delete(playerId);
-    if (this.valerioId === playerId) this.valerioId = null;
-    this.round?.eligible.delete(playerId);
+    if (this.valerioId === playerId) { this.valerioId = null; this.valerioName = null; }
+    if (this.round && this.phase === 'question') {
+      this.round.eligible.delete(playerId);
+      this.round.votes.delete(playerId);
+      this.round.bets.delete(playerId);
+    }
     this.maybeClose();
     this.touch();
     return p;
   }
 
+  // In lobby si sceglie (e si toglie) la corona. A partita iniziata si può solo spostare,
+  // tra un round e l'altro (es. il telefono di Valerio è morto e lui rientra da un altro).
   setValerio(playerId) {
-    if (this.phase !== 'lobby') throw new GameError('started');
     const p = this.players.get(playerId);
     if (!p || !p.plays) throw new GameError('noplayer');
-    this.valerioId = this.valerioId === playerId ? null : playerId;
+    if (this.phase === 'lobby') {
+      this.valerioId = this.valerioId === playerId ? null : playerId;
+      this.valerioName = this.valerioId ? p.name : null;
+    } else if (this.phase === 'scores' || this.phase === 'end') {
+      this.valerioName = this.valerioName || this.players.get(this.valerioId)?.name || p.name;
+      this.valerioId = playerId;
+    } else throw new GameError('notnow');
     this.touch();
   }
 
@@ -195,14 +230,15 @@ export class Room {
 
   schedule(ms, fn) {
     clearTimeout(this.timer);
-    this.timer = setTimeout(fn, Math.max(0, ms));
+    this.timer = setTimeout(safe(fn, this.code), Math.max(0, ms));
   }
 
   vote(playerId, roundIndex, choice) {
     const r = this.round;
     if (this.phase !== 'question' || !r || r.index !== roundIndex) return false; // voti in ritardo: ignorati
-    if (!r.eligible.has(playerId) || r.votes.has(playerId)) return false;
     if (choice !== 'x' && choice !== 'y') return false;
+    if (r.votes.has(playerId)) return r.votes.get(playerId) === choice; // reinvio dello stesso voto = ok
+    if (!r.eligible.has(playerId)) return false;
     r.votes.set(playerId, choice);
     this.maybeClose();
     this.touch();
@@ -212,8 +248,9 @@ export class Room {
   bet(playerId, roundIndex, bet) {
     const r = this.round;
     if (this.phase !== 'question' || !r || r.index !== roundIndex) return false;
-    if (playerId === this.valerioId || !r.eligible.has(playerId) || r.bets.has(playerId)) return false;
     if (bet !== 'lose' && bet !== 'safe') return false;
+    if (r.bets.has(playerId)) return r.bets.get(playerId) === bet;
+    if (playerId === this.valerioId || !r.eligible.has(playerId)) return false;
     r.bets.set(playerId, bet);
     this.maybeClose();
     this.touch();
@@ -225,6 +262,7 @@ export class Room {
   maybeClose() {
     const r = this.round;
     if (this.phase !== 'question' || !r || this.paused) return;
+    if (Date.now() < this.restoredUntil) return; // dopo un riavvio del server: niente chiusure anticipate
     if (!r.votes.has(this.valerioId)) return;
     let waitingOn = 0;
     for (const id of r.eligible) {
@@ -318,7 +356,10 @@ export class Room {
 
   // "Avanti" dell'host: nel reveal gira pagina, dall'ultima pagina va alla classifica,
   // dalla classifica (o saltando una domanda) va alla prossima.
-  next() {
+  // `expect` = fase in cui l'host ha premuto: un doppio tocco arrivato dopo il cambio fase
+  // viene ignorato, così non si salta per sbaglio la domanda appena partita.
+  next(expect) {
+    if (expect && expect !== this.phase) throw new GameError('stale');
     if (this.phase === 'reveal') {
       if (this.revealStep < REVEAL_STEPS - 1) {
         this.revealStep++;
@@ -329,13 +370,15 @@ export class Room {
     else throw new GameError('nonext');
   }
 
-  skip() {
+  skip(roundIndex) {
     if (this.phase !== 'question') throw new GameError('noskip');
+    if (roundIndex != null && roundIndex !== this.round?.index) throw new GameError('stale');
     this.nextRound();
   }
 
   pause(reason = 'manual') {
     if (this.paused || this.phase === 'lobby' || this.phase === 'end') return;
+    if (reason === 'manual' && this.phase !== 'question') throw new GameError('stale');
     this.paused = true;
     this.pauseReason = reason;
     if (this.phase === 'question') {
@@ -368,7 +411,7 @@ export class Room {
     this.phaseEndsAt = null;
     this.round = null;
     const highlights = this.history
-      .filter((h) => h.lost && h.valerioVote && h.n > 0)
+      .filter((h) => h.reason === 'minority' && h.n > 0)
       .sort((a, b) => b.isolation - a.isolation || b.n - a.n)
       .slice(0, 3);
     this.final = { drinks: this.drinks, penances: this.penances, rounds: this.history.length, highlights };
@@ -378,6 +421,74 @@ export class Room {
   restart() {
     this.reset();
     this.touch();
+  }
+
+  // ---------- salvataggio su disco (sopravvive a un riavvio del server) ----------
+
+  snapshot() {
+    const r = this.round;
+    return {
+      v: 1,
+      code: this.code,
+      hostId: this.hostId,
+      valerioId: this.valerioId,
+      valerioName: this.valerioName,
+      settings: this.settings,
+      lastActivity: this.lastActivity,
+      players: [...this.players.values()],
+      phase: this.phase,
+      phaseStartsAt: this.phaseStartsAt,
+      phaseEndsAt: this.phaseEndsAt,
+      revealStep: this.revealStep ?? 0,
+      paused: this.paused,
+      pauseReason: this.pauseReason,
+      pausedRemaining: this.pausedRemaining,
+      questions: this.questions,
+      qIndex: this.qIndex,
+      history: this.history,
+      drinks: this.drinks,
+      penances: this.penances,
+      streak: this.streak,
+      penanceIdx: this.penanceIdx,
+      final: this.final,
+      round: r && {
+        index: r.index,
+        question: r.question,
+        pair: r.pair,
+        eligible: [...r.eligible],
+        votes: [...r.votes],
+        bets: [...r.bets],
+        result: r.result,
+      },
+    };
+  }
+
+  restore(d) {
+    this.hostId = d.hostId;
+    this.valerioId = d.valerioId;
+    this.valerioName = d.valerioName ?? null;
+    this.settings = { ...this.settings, ...d.settings };
+    this.lastActivity = d.lastActivity || Date.now();
+    this.players = new Map((d.players || []).map((p) => [p.id, p]));
+    for (const k of ['phase', 'phaseStartsAt', 'phaseEndsAt', 'revealStep', 'paused', 'pauseReason', 'pausedRemaining',
+      'questions', 'qIndex', 'history', 'drinks', 'penances', 'streak', 'penanceIdx', 'final']) {
+      if (d[k] !== undefined) this[k] = d[k];
+    }
+    this.round = d.round && {
+      ...d.round,
+      eligible: new Set(d.round.eligible),
+      votes: new Map(d.round.votes),
+      bets: new Map(d.round.bets),
+    };
+    // Domanda in corso: il timer riparte, con un margine per far rientrare tutti
+    this.restoredUntil = Date.now() + RESTORE_GRACE_MS;
+    if (this.phase === 'question' && !this.paused) {
+      const ms = Math.max((this.phaseEndsAt || 0) - Date.now(), RESTORE_GRACE_MS);
+      this.phaseEndsAt = Date.now() + ms;
+      this.schedule(ms, () => this.closeRound());
+      // passato il margine, se nel frattempo hanno votato tutti si chiude subito
+      setTimeout(safe(() => this.maybeClose(), 'restore-grace'), RESTORE_GRACE_MS + 50);
+    }
   }
 
   // ---------- viste ----------
@@ -405,6 +516,7 @@ export class Room {
       settings: this.settings,
       hostId: this.hostId,
       valerioId: this.valerioId,
+      valerioName: this.valerioName || this.players.get(this.valerioId)?.name || null,
       hasScreen: [...this.sockets.values()].some((v) => v.screen),
       questionCount: this.phase === 'lobby' ? this.getQuestions().length : this.questions.length,
       players: [...this.players.values()].map((p) => ({

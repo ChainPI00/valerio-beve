@@ -30,11 +30,16 @@ function defaults() {
 fs.mkdirSync(ASSET_DIR, { recursive: true });
 
 export const library = (() => {
+  if (!fs.existsSync(LIB_FILE)) return defaults();
   try {
     const raw = JSON.parse(fs.readFileSync(LIB_FILE, 'utf8'));
     const d = defaults();
     return { ...d, ...raw, meta: { ...d.meta, ...raw.meta }, faces: { ...d.faces, ...raw.faces } };
-  } catch {
+  } catch (err) {
+    // File illeggibile: lo mettiamo da parte invece di sovrascriverlo, così domande e foto si recuperano
+    const backup = `${LIB_FILE}.rotto-${Date.now()}`;
+    try { fs.renameSync(LIB_FILE, backup); } catch {}
+    console.error(`[library] library.json illeggibile (${err.message}), salvato in ${backup}`);
     return defaults();
   }
 })();
@@ -43,8 +48,12 @@ let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    fs.writeFileSync(LIB_FILE + '.tmp', JSON.stringify(library, null, 2));
-    fs.renameSync(LIB_FILE + '.tmp', LIB_FILE);
+    try {
+      fs.writeFileSync(LIB_FILE + '.tmp', JSON.stringify(library, null, 2));
+      fs.renameSync(LIB_FILE + '.tmp', LIB_FILE);
+    } catch (err) {
+      console.error('[library] salvataggio fallito:', err.message);
+    }
   }, 200);
 }
 
@@ -61,9 +70,9 @@ export function saveAsset(buffer, mime) {
 const sanitizePenances = (list) =>
   [...new Set((Array.isArray(list) ? list : []).map((t) => clip(t, 160)).filter(Boolean))].slice(0, 200);
 
-function sanitizeQuestions(list) {
-  const memeIds = new Set(library.memes.map((m) => m.id));
+function sanitizeQuestions(list, memeIds = new Set(library.memes.map((m) => m.id))) {
   return (Array.isArray(list) ? list : [])
+    .filter((q) => q && typeof q === 'object')
     .map((q) => ({
       id: typeof q.id === 'string' && q.id ? q.id.slice(0, 20) : id(),
       x: clip(q.x, 140),
@@ -124,19 +133,33 @@ export function exportPack() {
   return { version: 1, library, assets };
 }
 
+const isAsset = (u) => typeof u === 'string' && /^\/assets\/[\w-]+\.(png|jpg|webp|gif)$/.test(u);
+
+// Import tutto-o-niente: si valida tutto in un oggetto nuovo e si sostituisce la libreria in un colpo solo
 export function importPack(pack) {
-  if (!pack || typeof pack !== 'object' || !pack.library) throw new Error('Pack non valido');
-  for (const [url, b64] of Object.entries(pack.assets || {})) {
-    const name = path.basename(String(url));
-    if (!/^[\w-]+\.(png|jpg|webp|gif)$/.test(name)) continue;
-    fs.writeFileSync(path.join(ASSET_DIR, name), Buffer.from(String(b64), 'base64'));
-  }
+  if (!pack || typeof pack !== 'object' || !pack.library || typeof pack.library !== 'object') throw new Error('Pack non valido');
   const l = pack.library;
   const d = defaults();
-  library.meta = { ...d.meta, ...l.meta };
-  library.faces = { ...d.faces, ...l.faces };
-  library.memes = Array.isArray(l.memes) ? l.memes : [];
-  library.questions = sanitizeQuestions(l.questions);
-  library.penances = Array.isArray(l.penances) ? sanitizePenances(l.penances) : [...DEFAULT_PENANCES];
+  const next = {
+    meta: {
+      course: clip(l.meta?.course ?? d.meta.course, 80),
+      university: clip(l.meta?.university ?? d.meta.university, 80),
+    },
+    faces: Object.fromEntries(EXPRESSIONS.map((e) => [e, isAsset(l.faces?.[e]) ? l.faces[e] : null])),
+    memes: (Array.isArray(l.memes) ? l.memes : [])
+      .filter((m) => m && typeof m === 'object' && typeof m.id === 'string' && isAsset(m.url))
+      .map((m) => ({ id: m.id.slice(0, 20), url: m.url, name: clip(m.name, 40) || 'Meme' })),
+  };
+  next.questions = sanitizeQuestions(l.questions, new Set(next.memes.map((m) => m.id)));
+  next.penances = Array.isArray(l.penances) ? sanitizePenances(l.penances) : [...DEFAULT_PENANCES];
+  // file delle immagini: solo nomi sicuri
+  const files = [];
+  for (const [url, b64] of Object.entries(pack.assets && typeof pack.assets === 'object' ? pack.assets : {})) {
+    const name = path.basename(String(url));
+    if (!/^[\w-]+\.(png|jpg|webp|gif)$/.test(name) || typeof b64 !== 'string') continue;
+    files.push([name, Buffer.from(b64, 'base64')]);
+  }
+  for (const [name, buf] of files) fs.writeFileSync(path.join(ASSET_DIR, name), buf);
+  Object.assign(library, next);
   save();
 }

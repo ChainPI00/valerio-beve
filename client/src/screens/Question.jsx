@@ -1,10 +1,10 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { Face } from '../components/Face.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { Countdown, FitText, Rich, plain, useStagger } from '../components/UI.jsx';
 import { C, pairColors, vibrate, motion } from '../lib/theme.js';
-import { emit } from '../lib/net.js';
+import { emitReliable } from '../lib/net.js';
 import { sfx, unlockAudio } from '../lib/audio.js';
 import { keepAwake } from '../lib/fx.js';
 
@@ -28,27 +28,45 @@ export function TopBar({ s }) {
 export function Question({ s }) {
   const me = s.me;
   const r = s.round;
+  // La scelta locale vale solo finché finisce l'animazione d'uscita; poi conta quella del server
   const [picked, setPicked] = useState(null);
   const [betPicked, setBetPicked] = useState(null);
-  const vote = me.vote || picked;
-  const bet = me.bet || betPicked;
+  const [animVote, setAnimVote] = useState(false);
+  const [animBet, setAnimBet] = useState(false);
+  const [failed, setFailed] = useState('');
+  const [attempt, setAttempt] = useState(0); // nuovo tentativo = bottoni nuovi
+  // se il server non ha registrato la scelta (rete persa per troppo tempo) si torna ai bottoni
+  const meRef = useRef(me);
+  meRef.current = me;
+  useEffect(() => { if (failed && (me.vote || me.bet)) setFailed(''); }, [failed, me.vote, me.bet]);
+  const onVoteFail = () => {
+    if (meRef.current.vote) return; // il voto c'è (es. arrivato da un altro telefono): tutto ok
+    setPicked(null); setAnimVote(false); setAttempt((a) => a + 1); setFailed('Il tuo voto non è arrivato: rifallo!');
+  };
+  const onBetFail = () => {
+    if (meRef.current.bet) return;
+    setBetPicked(null); setAnimBet(false); setAttempt((a) => a + 1); setFailed('La scommessa non è arrivata: rifalla!');
+  };
+  const vote = animVote ? null : me.vote || picked;
+  const bet = animBet ? null : me.bet || betPicked;
   useLayoutEffect(() => { keepAwake(); }, []);
 
   let view;
-  if (!me.eligible) view = <Spectator s={s} />;
-  else if (!vote) view = <Vote s={s} onPick={setPicked} />;
-  else if (!me.isValerio && !bet) view = <Bet s={s} vote={vote} onPick={setBetPicked} />;
+  if (!me.eligible) view = me.isHost ? <Regia s={s} /> : <Spectator s={s} />;
+  else if (!vote) view = <Vote key={`v${attempt}`} s={s} onStart={() => { setFailed(''); setAnimVote(true); }} onPick={(c) => { setPicked(c); setAnimVote(false); }} onFail={onVoteFail} />;
+  else if (!me.isValerio && !bet) view = <Bet key={`b${attempt}`} s={s} vote={vote} onStart={() => { setFailed(''); setAnimBet(true); }} onPick={(b) => { setBetPicked(b); setAnimBet(false); }} onFail={onBetFail} />;
   else view = <Wait s={s} vote={vote} bet={bet} />;
 
   return (
     <div className="screen question" style={{ '--x': pairColors(r.pair)[0], '--y': pairColors(r.pair)[1] }}>
       <TopBar s={s} />
+      {failed && <p className="hint is-error vote-failed">{failed}</p>}
       {view}
     </div>
   );
 }
 
-function Vote({ s, onPick }) {
+function Vote({ s, onPick, onStart, onFail }) {
   const r = s.round;
   const [cx, cy] = pairColors(r.pair);
   const ref = useRef(null);
@@ -69,10 +87,11 @@ function Vote({ s, onPick }) {
   const pick = (choice) => {
     if (busy.current) return;
     busy.current = true;
+    onStart();
     unlockAudio();
     vibrate(35);
     sfx.boing();
-    emit('vote', { round: r.index, choice });
+    emitReliable('vote', { round: r.index, choice }).then((res) => { if (!res.ok || !res.accepted) onFail(); });
     const chosen = ref.current.querySelector(choice === 'x' ? '.opt-x' : '.opt-y');
     const other = ref.current.querySelector(choice === 'x' ? '.opt-y' : '.opt-x');
     gsap.timeline({ onComplete: () => onPick(choice) })
@@ -88,11 +107,11 @@ function Vote({ s, onPick }) {
       <h2 className="pref outline">PREFERIRESTI</h2>
       <div className="options">
         <button className="option opt-x" style={{ '--c': cx }} onClick={() => pick('x')}>
-          <FitText max={54} min={22}><Rich text={r.question.x} /></FitText>
+          <FitText max={54} min={15}><Rich text={r.question.x} /></FitText>
         </button>
         <div className="or">O</div>
         <button className="option opt-y" style={{ '--c': cy }} onClick={() => pick('y')}>
-          <FitText max={54} min={22}><Rich text={r.question.y} /></FitText>
+          <FitText max={54} min={15}><Rich text={r.question.y} /></FitText>
         </button>
       </div>
       <Face expr={s.me.isValerio ? 'sorpreso' : 'neutro'} size={86} track className="peek" />
@@ -110,16 +129,17 @@ function Chip({ choice, r }) {
   );
 }
 
-function Bet({ s, vote, onPick }) {
+function Bet({ s, vote, onPick, onStart, onFail }) {
   const r = s.round;
   const ref = useStagger([]);
   const busy = useRef(false);
   const pick = (bet) => {
     if (busy.current) return;
     busy.current = true;
+    onStart();
     vibrate(30);
     sfx.boing();
-    emit('bet', { round: r.index, bet });
+    emitReliable('bet', { round: r.index, bet }).then((res) => { if (!res.ok || !res.accepted) onFail(); });
     const el = ref.current.querySelector(bet === 'lose' ? '.bet-lose' : '.bet-safe');
     gsap.timeline({ onComplete: () => onPick(bet) })
       .to(el, { scale: 0.9, duration: 0.08 })
@@ -205,6 +225,19 @@ function Wait({ s, vote, bet }) {
       <div className="st"><Counter s={s} /></div>
       <div className="st"><VoteMeter s={s} size={40} /></div>
       {s.hasScreen && <p className="st hint look-tv">👀 Guarda lo schermo grande!</p>}
+    </div>
+  );
+}
+
+// L'host che fa solo regia (non gioca): vede l'andamento dei voti e può saltare la domanda
+function Regia({ s }) {
+  const ref = useStagger([]);
+  return (
+    <div className="wait" ref={ref}>
+      <h2 className="st title outline">REGIA</h2>
+      <p className="st hint">Stai facendo da regia: i voti arrivano qui sotto. Il round si chiude da solo quando votano tutti.</p>
+      <div className="st"><Counter s={s} /></div>
+      <div className="st"><VoteMeter s={s} size={40} /></div>
     </div>
   );
 }

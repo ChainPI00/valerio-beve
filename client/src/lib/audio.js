@@ -22,12 +22,20 @@ export function setMuted(m) {
   updateMusicGain();
 }
 const vol = () => (big ? 1 : 0.8);
-export function setBigScreen(b) { big = b; if (master && !muted) master.gain.value = vol(); updateMusicGain(); }
+export function setBigScreen(b) {
+  big = b;
+  try { if (navigator.audioSession) navigator.audioSession.type = b ? 'playback' : 'ambient'; } catch {}
+  if (master && !muted) master.gain.value = vol();
+  updateMusicGain();
+}
 
 // Da chiamare dentro un gesto dell'utente (tap su "Entra"): i browser mobile bloccano l'audio fino ad allora.
 export function unlockAudio() {
+  // Telefoni: "ambient" = il gioco si MESCOLA con la musica degli altri (Spotify sulla cassa non si ferma).
+  // Il prezzo è che col tasto silenzioso l'iPhone non suona: in lobby c'è il promemoria.
+  // Schermo grande: "playback", audio pieno.
   try {
-    if (navigator.audioSession) navigator.audioSession.type = 'playback'; // iOS: suona anche col silenzioso
+    if (navigator.audioSession) navigator.audioSession.type = big ? 'playback' : 'ambient';
   } catch {}
   if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -92,7 +100,30 @@ function env(gainNode, t, a, peak, d, sustain = 0.0001) {
   g.exponentialRampToValueAtTime(peak, t + a);
   g.exponentialRampToValueAtTime(Math.max(sustain, 0.0001), t + a + d);
 }
-function osc(type, freq, t, dur, { gain = 0.3, a = 0.005, out = master, detune = 0 } = {}) {
+let currentOut = null;
+const dest = () => currentOut || master;
+// Tutti gli effetti creati dentro fn() escono da `bus` (un GainNode): spegnendo il bus si zittiscono
+// anche quelli già programmati nel futuro (es. la sirena se l'host va avanti prima della fine).
+export function createBus() {
+  if (!ctx) return null;
+  const g = ctx.createGain();
+  g.connect(master);
+  return g;
+}
+export function withBus(bus, fn) {
+  const prev = currentOut;
+  currentOut = bus;
+  try { fn(); } finally { currentOut = prev; }
+}
+export function closeBus(bus) {
+  if (!bus || !ctx) return;
+  try {
+    bus.gain.setTargetAtTime(0, ctx.currentTime, 0.04);
+    setTimeout(() => { try { bus.disconnect(); } catch {} }, 400);
+  } catch {}
+}
+
+function osc(type, freq, t, dur, { gain = 0.3, a = 0.005, out = dest(), detune = 0 } = {}) {
   const o = ctx.createOscillator();
   const g = ctx.createGain();
   o.type = type;
@@ -104,7 +135,7 @@ function osc(type, freq, t, dur, { gain = 0.3, a = 0.005, out = master, detune =
   o.stop(t + a + dur + 0.05);
   return o;
 }
-function noise(t, dur, { gain = 0.3, type = 'bandpass', freq = 1000, q = 1, a = 0.003, out = master } = {}) {
+function noise(t, dur, { gain = 0.3, type = 'bandpass', freq = 1000, q = 1, a = 0.003, out = dest() } = {}) {
   const s = ctx.createBufferSource();
   s.buffer = noiseBuf;
   s.loop = true;
@@ -119,7 +150,9 @@ function noise(t, dur, { gain = 0.3, type = 'bandpass', freq = 1000, q = 1, a = 
   s.stop(t + a + dur + 0.05);
   return { src: s, filter: f, gain: g };
 }
-const ok = () => ctx && !muted;
+// Solo con l'audio davvero attivo: se il contesto è sospeso, i suoni programmati partirebbero
+// tutti insieme alla ripresa (rullo + sirena + clacson in un colpo)
+const ok = () => ctx && !muted && ctx.state === 'running';
 
 // ---------- suoni ----------
 export const sfx = {
@@ -152,7 +185,7 @@ export const sfx = {
     lg.gain.exponentialRampToValueAtTime(1, t + 0.4);
     lfo.connect(lg).connect(o.frequency);
     env(g, t, 0.005, 0.45, 0.4);
-    o.connect(g).connect(master);
+    o.connect(g).connect(dest());
     o.start(t); lfo.start(t);
     o.stop(t + 0.5); lfo.stop(t + 0.5);
   },
@@ -218,7 +251,7 @@ export const sfx = {
       g.gain.exponentialRampToValueAtTime(level, t + 0.08);
       g.gain.setValueAtTime(level, t + dur - 0.3);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(f).connect(g).connect(master);
+      o.connect(f).connect(g).connect(dest());
       o.start(t); lfo.start(t);
       o.stop(t + dur + 0.1); lfo.stop(t + dur + 0.1);
     }
@@ -289,7 +322,7 @@ export const sfx = {
         g.gain.setValueAtTime(type === 'sine' ? 0.09 : 0.04, t + len - 0.6);
         g.gain.exponentialRampToValueAtTime(0.0001, t + len);
         o.connect(g);
-        g.connect(master);
+        g.connect(dest());
         g.connect(reverb);
         o.start(t); lfo.start(t);
         o.stop(t + len + 0.1); lfo.stop(t + len + 0.1);
@@ -329,7 +362,7 @@ export const sfx = {
         lfo.start(t + off); lfo.stop(t + off + len + 0.1);
       }
       env(g, t + off, 0.03, 0.22, len);
-      o.connect(filt).connect(g).connect(master);
+      o.connect(filt).connect(g).connect(dest());
       o.start(t + off);
       o.stop(t + off + len + 0.1);
     }
@@ -407,7 +440,8 @@ function setupMusic() {
   musicTimer = setInterval(scheduleMusic, 60);
 }
 
-const musicLevel = () => (big ? 0.9 : 0.6);
+let musicScale = 1;
+const musicLevel = () => (big ? 0.9 : 0.6) * musicScale;
 function updateMusicGain() {
   if (!musicGain) return;
   const target = musicOn && !muted && holds.size === 0 ? musicLevel() : 0;
@@ -416,7 +450,7 @@ function updateMusicGain() {
 }
 
 function scheduleMusic() {
-  if (!ctx || ctx.state !== 'running' || !musicOn || muted || holds.size) { lastStep = -1; return; }
+  if (!ctx || ctx.state !== 'running' || !musicOn || muted || holds.size || musicScale === 0) { lastStep = -1; return; }
   const now = serverNow();
   const from = Math.max(lastStep + 1, Math.ceil(now / STEP_MS));
   const to = Math.floor((now + 260) / STEP_MS);
@@ -494,5 +528,6 @@ export const music = {
   onChange(fn) { musicListeners.add(fn); return () => musicListeners.delete(fn); },
   // reveal e proclamazione "tengono" giù la musica finché sono a schermo
   hold(id) { holds.add(id); updateMusicGain(); },
+  setScale(x) { musicScale = x; updateMusicGain(); },
   release(id) { holds.delete(id); updateMusicGain(); },
 };

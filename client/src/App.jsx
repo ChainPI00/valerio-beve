@@ -11,7 +11,7 @@ import { Scores } from './screens/Scores.jsx';
 import { End } from './screens/End.jsx';
 import { TvJoin, TvLobby, TvQuestion } from './screens/Tv.jsx';
 import { C, pairColors, joke, isTv } from './lib/theme.js';
-import { audioReady, unlockAudio, isMuted } from './lib/audio.js';
+import { audioReady, unlockAudio, isMuted, music, setBigScreen } from './lib/audio.js';
 
 // /ABCD → entra con codice · /tv → schermo grande · /tv/ABCD → schermo grande collegato
 const path = location.pathname.replace(/\/+$/, '');
@@ -22,20 +22,38 @@ export function App() {
   const state = useStore((s) => s.state);
   const connected = useStore((s) => s.connected);
   const resuming = useStore((s) => s.resuming);
-  const [booting, setBooting] = useState(() => !TV && !!session.get());
-
-  useEffect(() => {
-    if (TV) return;
+  const lostReason = useStore((s) => s.lostReason);
+  const [booting, setBooting] = useState(() => {
+    if (TV) return false;
     const saved = session.get();
     // Se il link punta a un'altra stanza, la sessione salvata non vale
-    if (saved && urlCode && saved.code !== urlCode) session.clear();
-    resumeSaved().finally(() => setTimeout(() => setBooting(false), 600));
+    if (saved && urlCode && saved.code !== urlCode) { session.clear(); return false; }
+    return !!saved;
+  });
+
+  // Con una sessione salvata si resta su "Ti riportiamo in partita" finché si rientra davvero
+  // (o la stanza non c'è più, o dopo 10 s): niente home che lampeggia durante il rientro
+  useEffect(() => {
+    if (TV) return;
+    resumeSaved().then((had) => { if (!had) setBooting(false); });
+    const t = setTimeout(() => setBooting(false), 10000);
+    return () => clearTimeout(t);
   }, []);
+  useEffect(() => {
+    if (booting && (state || lostReason || !session.get())) setBooting(false);
+  }, [booting, state, lostReason, resuming]);
 
   useEffect(() => {
     // Il codice nell'URL serve solo per entrare: poi lo togliamo per non rientrare per sbaglio
     if (state && !TV && location.pathname !== '/') history.replaceState(null, '', '/');
   }, [state]);
+
+  // Con la TV collegata la musica la fa la TV: i telefoni non la suonano (meno caos e meno batteria)
+  const hasScreen = !!state?.hasScreen;
+  useEffect(() => {
+    if (TV) setBigScreen(true);
+    else music.setScale(hasScreen ? 0 : 1);
+  }, [hasScreen]);
 
   const round = state?.round;
   const [ax, ay] = round ? pairColors(round.pair) : [C.pink, C.cyan];
@@ -68,6 +86,7 @@ export function App() {
       {state?.paused && <PausedBanner s={state} />}
       {!connected && !booting && <div className="offline">{joke('offline')}</div>}
       {state && <AudioGate tv={!state.me} />}
+      {!TV && <div className="rotate-hint"><span>📱</span>Gira il telefono in verticale</div>}
     </div>
   );
 }
@@ -86,7 +105,11 @@ function PausedBanner({ s }) {
   return (
     <div className="paused">
       <b>PAUSA</b>
-      <span>{s.pauseReason === 'host' ? `${host?.name || 'L’host'} è sparito. Aspettiamo che torni…` : 'L’host ha messo in pausa. Ne approfitti per un sorso?'}</span>
+      <span>
+        {s.pauseReason === 'host'
+          ? `${host?.name || 'L’host'} è sparito. Aspettiamo che torni… Se ha perso il telefono: Entra con il codice ${s.code}, stesso nome e PIN.`
+          : 'L’host ha messo in pausa. Ne approfitti per un sorso?'}
+      </span>
     </div>
   );
 }

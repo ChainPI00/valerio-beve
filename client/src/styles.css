@@ -23,7 +23,7 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body, #root { height: 100%; margin: 0; }
+html, body, #root { height: 100%; margin: 0; overscroll-behavior: none; }
 body {
   background: var(--night);
   color: var(--cream);
@@ -79,28 +79,30 @@ em { font-style: normal; }
 .bg-pattern {
   position: absolute; inset: -220px; background-size: 220px 220px;
   animation: pattern 38s linear infinite; opacity: .9;
+  will-change: transform;
 }
 @keyframes pattern { to { transform: translate3d(220px, 220px, 0); } }
 .bg-blob {
   position: absolute; width: 75vmax; height: 75vmax; border-radius: var(--blob);
   opacity: .16; transition: background 1.2s;
-  animation: drift 26s ease-in-out infinite alternate, morph 12s ease-in-out infinite alternate;
+  animation: drift 26s ease-in-out infinite alternate;
+  will-change: transform;
 }
 .bg-blob-a { left: -35vmax; top: -30vmax; }
-.bg-blob-b { right: -40vmax; bottom: -35vmax; animation-delay: -8s, -3s; }
-.bg-blob-c { left: 40%; top: 55%; width: 40vmax; height: 40vmax; background: var(--night-2); opacity: .7; animation-delay: -14s, -6s; }
+.bg-blob-b { right: -40vmax; bottom: -35vmax; animation-delay: -8s; border-radius: 40% 60% 42% 58% / 58% 40% 60% 42%; }
+.bg-blob-c { left: 40%; top: 55%; width: 40vmax; height: 40vmax; background: var(--night-2); opacity: .7; animation-delay: -14s; border-radius: 52% 48% 38% 62% / 42% 62% 38% 58%; }
 @keyframes drift { to { transform: translate3d(8vmax, 6vmax, 0) rotate(40deg); } }
 @keyframes morph {
   0% { border-radius: 58% 42% 55% 45% / 46% 54% 46% 54%; }
   50% { border-radius: 40% 60% 42% 58% / 58% 40% 60% 42%; }
   100% { border-radius: 52% 48% 38% 62% / 42% 62% 38% 58%; }
 }
-.bg-grain { position: absolute; inset: 0; opacity: .13; mix-blend-mode: overlay; pointer-events: none; }
+.bg-grain { position: absolute; inset: 0; opacity: .05; pointer-events: none; }
 
 .app { position: fixed; inset: 0; }
 .stage-root { position: absolute; inset: 0; z-index: 1; overflow: hidden; }
 .wipe { position: fixed; z-index: 50; width: 190vmax; height: 190vmax; display: none; pointer-events: none; }
-.fx-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 60; pointer-events: none; }
+.fx-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 60; pointer-events: none; }
 
 /* ---------- layout ---------- */
 .screen {
@@ -110,6 +112,7 @@ em { font-style: normal; }
   padding: calc(18px + var(--safe-t)) 18px calc(18px + var(--safe-b));
   overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 .stack { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; max-width: 520px; }
 .center { justify-content: center; }
@@ -135,7 +138,8 @@ em { font-style: normal; }
 }
 .btn:active { transform: translate(4px, 4px) scale(.94); box-shadow: 2px 2px 0 var(--ink); }
 .btn:disabled { opacity: .55; filter: saturate(.4); }
-.btn-big { min-height: 80px; font-size: 32px; animation: morph-soft 6s ease-in-out infinite alternate; }
+.btn-big { min-height: 80px; font-size: 32px; animation: float-btn 2.8s ease-in-out infinite alternate; }
+@keyframes float-btn { from { rotate: -.8deg; } to { rotate: .8deg; scale: 1.015; } }
 .btn-small { min-height: 48px; font-size: 17px; padding: 8px 18px; }
 @keyframes morph-soft {
   0% { border-radius: 40px 34px 44px 30px / 34px 42px 30px 44px; }
@@ -336,10 +340,10 @@ em { font-style: normal; }
   display: flex;
   transition: box-shadow .12s;
 }
-.opt-x { border-radius: 64% 36% 48% 52% / 40% 56% 44% 60%; margin: 0 14px 0 0; animation: morph-a 7s ease-in-out infinite alternate; }
-.opt-y { border-radius: 44% 56% 38% 62% / 56% 38% 62% 44%; margin: 0 0 0 14px; animation: morph-b 8s ease-in-out infinite alternate; }
-@keyframes morph-a { to { border-radius: 52% 48% 60% 40% / 52% 44% 56% 48%; } }
-@keyframes morph-b { to { border-radius: 58% 42% 46% 54% / 44% 58% 42% 56%; } }
+.opt-x { border-radius: 64% 36% 48% 52% / 40% 56% 44% 60%; margin: 0 14px 0 0; animation: float-a 3.6s ease-in-out infinite alternate; }
+.opt-y { border-radius: 44% 56% 38% 62% / 56% 38% 62% 44%; margin: 0 0 0 14px; animation: float-b 4.2s ease-in-out infinite alternate; }
+@keyframes float-a { from { rotate: -.6deg; translate: 0 0; } to { rotate: .8deg; translate: 0 -4px; } }
+@keyframes float-b { from { rotate: .7deg; translate: 0 0; } to { rotate: -.6deg; translate: 0 4px; } }
 .option:active { box-shadow: 3px 3px 0 var(--ink); }
 .option .kw, .rv-label .kw {
   background: none; padding: 0;
@@ -471,7 +475,10 @@ em { font-style: normal; }
 .rv-drinks { font-family: var(--display); font-size: 26px; margin-left: 12px; }
 
 /* ---------- classifica ---------- */
-.scores { gap: 16px; justify-content: center; }
+.scores { gap: 16px; }
+/* centrato quando c'è spazio, ma se non ci sta parte dall'alto e si scorre (niente pezzi tagliati in cima) */
+.scores > :first-child { margin-top: auto; }
+.scores > :last-child { margin-bottom: auto; }
 .sc-title { font-size: clamp(34px, 10vw, 60px); color: var(--yellow); }
 .sc-list { list-style: none; margin: 0; padding: 0; width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 10px; }
 .sc-row {
@@ -819,3 +826,87 @@ em { font-style: normal; }
 .reveal.has-next .rv-bet { bottom: calc(92px + var(--safe-b)); }
 
 .rv-bet { visibility: hidden; }
+
+/* ---------- reti di sicurezza ---------- */
+.crash {
+  position: fixed; inset: 0; z-index: 100; background: #2B1055; color: #FFF4E0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+  font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 700;
+}
+.crash-emoji { font-size: 64px; }
+.crash h1 { font-family: 'Bagel Fat One', system-ui; font-weight: 400; font-size: 56px; margin: 0; color: #FFD23F; }
+.crash p { margin: 0; font-size: 18px; max-width: 320px; }
+.crash button { margin-top: 8px; font: inherit; font-size: 18px; padding: 12px 22px; border-radius: 16px; border: 4px solid #170530; background: #FFD23F; color: #170530; box-shadow: 5px 5px 0 #170530; }
+
+.rotate-hint { display: none; }
+@media (orientation: landscape) and (max-height: 500px) and (min-aspect-ratio: 4/3) and (pointer: coarse) {
+  .rotate-hint {
+    position: fixed; inset: 0; z-index: 90; background: var(--night);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    font-family: var(--display); font-size: 26px; color: var(--cream); text-align: center;
+  }
+  .rotate-hint span { font-size: 56px; display: inline-block; animation: tilt-phone 1.6s ease-in-out infinite; }
+}
+@keyframes tilt-phone { 0%, 30% { rotate: 90deg; } 60%, 100% { rotate: 0deg; } }
+
+.regia-alert {
+  margin: 14px 0 0; padding: 10px 12px; border-radius: 14px; font-size: 14px; line-height: 1.35;
+  background: var(--orange); color: var(--ink); border: 3px solid var(--ink);
+}
+.kick-row .crown-btn { background: var(--yellow); font-size: 16px; }
+.kick-row .kick-confirm { width: auto; padding: 0 12px; border-radius: 12px; background: var(--orange); font-size: 14px; }
+.regia-fab.has-alert::after {
+  content: '!'; position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--orange); color: var(--ink); border: 2px solid var(--ink); font-size: 14px; line-height: 18px; font-weight: 700;
+}
+
+.vote-failed { width: 100%; max-width: 420px; background: var(--yellow); color: var(--ink) !important; border: 3px solid var(--ink); border-radius: 14px; padding: 8px 12px; }
+
+.same-card {
+  width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  background: var(--night-2); border: 4px solid var(--ink); box-shadow: var(--shadow); border-radius: 22px; padding: 14px;
+}
+.same-card p { margin: 0; font-size: 16px; line-height: 1.35; }
+.same-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.same-actions .btn { font-size: 17px; min-height: 52px; padding: 8px 16px; }
+
+/* penitenze lunghe: testo più piccolo, mai tagliato; spazio per la card in basso dell'host */
+.rv-penance.is-mid { font-size: clamp(18px, 5.2vw, 30px); }
+.rv-penance.is-long { font-size: clamp(16px, 4.4vw, 26px); }
+.reveal.has-next .rv-verdict { padding-bottom: calc(180px + var(--safe-b)); }
+.silent-tip { max-width: 320px; opacity: .85; }
+.inapp-tip {
+  width: 100%; max-width: 380px; font-size: 14px; line-height: 1.35; text-align: center;
+  background: var(--yellow); color: var(--ink); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink);
+  border-radius: 16px; padding: 10px 14px; margin-top: 46px;
+}
+@media (prefers-reduced-motion: reduce) { .opt-x, .opt-y, .btn-big { animation: none; } }
+
+/* telefoni bassi (iPhone SE & co.): in lobby l'host deve vedere gli sticker sopra il suo pannello */
+@media (max-height: 740px) {
+  .lobby { gap: 8px; }
+  .lobby-hero .face { width: 96px !important; height: 106px !important; }
+  .lobby-hero { gap: 4px; }
+  .lobby .me-card { padding: 4px 14px 4px 8px; }
+  .host-dock { gap: 8px; padding: 10px 18px calc(10px + var(--safe-b)); }
+  .host-dock .btn-big { min-height: 62px; font-size: 26px; }
+  .host-dock .btn-small { min-height: 42px; }
+}
+
+/* conferme: si "armano" in mezzo secondo (un doppio tocco non conferma per sbaglio) */
+.arming { animation: arming .5s linear; }
+@keyframes arming { from { opacity: .35; filter: saturate(.3); } 99% { opacity: .35; filter: saturate(.3); } to { opacity: 1; filter: none; } }
+
+/* schermate d'ingresso: il titolo non deve finire sotto i tasti ♪ / volume in alto a destra */
+.name-step, .code-step { padding-top: 46px; }
+.app:not(.is-tv) .scores, .app:not(.is-tv) .end { padding-top: calc(66px + var(--safe-t)); }
+
+/* "safe center": se il contenuto non ci sta non viene tagliato in alto (dove supportato) */
+.rv-verdict, .proclaim { justify-content: safe center; }
+.pc-title .l { font-size: min(14vw, 8.5vh, 110px); }
+.pc-word:first-child .l { font-size: min(8.5vw, 5vh, 64px); }
+@media (max-height: 740px) {
+  .proclaim { gap: 8px; }
+  .pc-chant { font-size: 18px; padding: 4px 12px; }
+  .pc-scroll { font-size: 14px; padding: 6px 12px; }
+}

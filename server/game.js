@@ -429,6 +429,7 @@ export class Room {
     const r = this.round;
     return {
       v: 1,
+      savedAt: Date.now(),
       code: this.code,
       hostId: this.hostId,
       valerioId: this.valerioId,
@@ -483,7 +484,10 @@ export class Room {
     // Domanda in corso: il timer riparte, con un margine per far rientrare tutti
     this.restoredUntil = Date.now() + RESTORE_GRACE_MS;
     if (this.phase === 'question' && !this.paused) {
-      const ms = Math.max((this.phaseEndsAt || 0) - Date.now(), RESTORE_GRACE_MS);
+      // il tempo della domanda resta "congelato" mentre il server era giù: si riparte da quanto mancava
+      // al momento del salvataggio, più un margine per far rientrare tutti
+      const left = Math.max(0, (this.phaseEndsAt || 0) - (d.savedAt || Date.now()));
+      const ms = left + RESTORE_GRACE_MS;
       this.phaseEndsAt = Date.now() + ms;
       this.schedule(ms, () => this.closeRound());
       // passato il margine, se nel frattempo hanno votato tutti si chiude subito

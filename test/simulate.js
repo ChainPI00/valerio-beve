@@ -253,16 +253,10 @@ try {
   await sleep(400);
   assert.equal(host.state.phase, 'reveal');
   assert.equal(host.state.revealStep, 0);
-  ok('il reveal resta fermo finché l\'host non va avanti');
-  const pages = [];
-  for (let i = 0; i < 4; i++) {
-    await host.emit('host:next');
-    await until(() => host.state.phase === 'scores' || host.state.revealStep === i + 1, 'pagina');
-    pages.push(host.state.phase === 'scores' ? 'classifica' : host.state.revealStep);
-    if (host.state.phase === 'reveal') assert.ok(host.state.phaseStartsAt > host.state.serverNow, 'pagina programmata nel futuro');
-  }
-  assert.deepEqual(pages, [1, 2, 3, 'classifica']);
-  ok('l\'host sfoglia 4 pagine (gruppo → Valerio → verdetto → scommesse) e poi la classifica');
+  ok('il reveal resta fermo sull\'esito finché l\'host non va avanti');
+  await host.emit('host:next');
+  await until(() => host.state.phase === 'scores', 'classifica');
+  ok('un AVANTI dell\'host porta dall\'esito alla classifica');
   const notHostNext = await friends[0].emit('host:next');
   assert.equal(notHostNext.error, 'nohost');
   ok('solo l\'host gira pagina');
@@ -290,7 +284,8 @@ try {
     const exp = res.x === res.y ? true : (res.x > res.y ? 'x' : 'y') !== res.valerioVote;
     assert.equal(res.lost, exp, `round ${round}`);
     if (res.lost) {
-      assert.ok(['drink', 'penance'].includes(res.punishment.type), 'punizione valida');
+      const lossesBefore = res.drinksTotal + res.penancesTotal - 1;
+      assert.equal(res.punishment.type, lossesBefore % 2 === 0 ? 'penance' : 'drink', 'alternanza penitenza/bevuta');
       if (res.punishment.type === 'penance') { assert.ok(res.punishment.text); penanceTexts.push(res.punishment.text); }
       fates[res.punishment.type]++;
     } else assert.equal(res.punishment, null);
@@ -306,10 +301,12 @@ try {
   assert.ok(fin.highlights.length <= 3);
   assert.ok(fin.highlights.every((h, i, a) => i === 0 || a[i - 1].isolation >= h.isolation));
   ok(`maratona completata: ${fin.rounds} round, Valerio: ${fin.drinks} bevute + ${fin.penances} penitenze, 0 errori`);
-  assert.ok(fates.drink > 0 && fates.penance > 0, `la sorte sceglie entrambe (beve ${fates.drink}, penitenza ${fates.penance})`);
-  ok(`sconfitta = sorte: ${fates.drink} volte beve, ${fates.penance} penitenze`);
-  assert.equal(new Set(penanceTexts).size, penanceTexts.length);
-  ok('le penitenze non si ripetono');
+  assert.ok(Math.abs(fates.drink - fates.penance) <= 1, `alternanza (beve ${fates.drink}, penitenza ${fates.penance})`);
+  ok(`sconfitte alternate: penitenza, beve, penitenza… (${fates.penance} penitenze, ${fates.drink} bevute)`);
+  const DEFAULT_PEN = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'server', 'penances.default.json'), 'utf8'));
+  const firstPen = penanceTexts.length ? DEFAULT_PEN.indexOf(penanceTexts[0]) : 0;
+  penanceTexts.forEach((t, i) => assert.equal(t, DEFAULT_PEN[(firstPen + i) % DEFAULT_PEN.length], 'ordine della lista'));
+  ok('le penitenze escono nell\'ordine della lista');
   const board = host.state.leaderboard;
   assert.ok(board.every((b, i, a) => i === 0 || a[i - 1].score >= b.score));
   assert.ok(!board.some((b) => b.id === valerioId));

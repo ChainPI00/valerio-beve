@@ -1,7 +1,7 @@
-// Il reveal, a pagine comandate dall'host: 0 il gruppo · 1 e Valerio? · 2 il verdetto · 3 le scommesse.
-// Una sola timeline GSAP con una pausa a fine pagina; ogni pagina parte sul timestamp del server
-// (phaseStartsAt), quindi tutti i dispositivi la vedono nello stesso istante. Chi rientra salta al punto giusto.
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+// Il reveal: scorre tutto di fila (gruppo → pendolo di Valerio → verdetto → scommessa), parte nello
+// stesso istante su tutti i dispositivi (phaseStartsAt) e poi resta fermo sull'esito, così si legge.
+// L'host preme AVANTI per la classifica. Chi si collega a metà salta al punto giusto.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { Face } from '../components/Face.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -12,15 +12,7 @@ import { sfx, atServer, music } from '../lib/audio.js';
 import { burst, shake, loadImage, clearConfetti } from '../lib/fx.js';
 import { faceUrl } from '../components/Face.jsx';
 
-const T = { bars: 0.5, face: 3.0, stop: 5.0, verdict: 5.5, fate: 7.3 };
-const NEXT_LABEL = ['E VALERIO? ▶', 'VERDETTO ▶', 'SCOMMESSE ▶', 'CLASSIFICA ▶'];
-// Roulette beve/penitenza: tante caselle alternate, l'ultima è l'esito deciso dal server
-const REEL = 15;
-const reelItems = (type) => Array.from({ length: REEL }, (_, i) => {
-  const fromEnd = REEL - 1 - i;
-  return fromEnd % 2 === 0 ? type : type === 'drink' ? 'penance' : 'drink';
-});
-const REEL_LABEL = { drink: '🍺 BEVE', penance: '🎭 PENITENZA' };
+const T = { bars: 0.5, face: 3.0, stop: 5.0, verdict: 5.5 };
 
 export function Reveal({ s, tv = false }) {
   const r = s.round;
@@ -38,11 +30,10 @@ export function Reveal({ s, tv = false }) {
 
   const lost = res.lost;
   const fate = res.punishment?.type; // 'drink' | 'penance' | undefined
-  const betT = lost ? 10.2 : 8.2;
-  // inizio di ogni pagina sulla timeline (l'ultima è la fine)
-  const bounds = [0, T.face, T.verdict, betT, betT + 1.2];
+  const betT = lost ? 8.8 : 8.2;
+  const END = betT + 0.8;
   const tlRef = useRef(null);
-  const step = s.revealStep ?? 0;
+  const [done, setDone] = useState(false);
   const banner = lost
     ? res.reason === 'novote' ? 'NON HA SCELTO = PERDE'
       : res.reason === 'tie' ? (res.n ? 'PAREGGIO = PERDE' : 'NESSUNO HA VOTATO')
@@ -106,21 +97,16 @@ export function Reveal({ s, tv = false }) {
             }, i * 700);
           }
         };
-        // 5.5 ha perso: sirena, faccia disperata, parte la roulette
+        // 5.5 ha perso: sirena, lettere che sbattono (BEVE o PENITENZA, alternati), caos
         tl.set('.rv-siren', { display: 'block' }, T.verdict)
-          .fromTo('.rv-siren', { backgroundColor: C.siren }, { backgroundColor: C.night, duration: 0.35 / Math.max(0.5, motion), ease: 'steps(1)', repeat: 17, yoyo: true }, T.verdict)
-          .fromTo('.rv-bigface', { scale: 0, rotate: -200 }, { scale: 1, rotate: 0, duration: 0.6, ease: 'back.out(1.6)' }, T.verdict)
-          .fromTo('.rv-roulette', { scale: 0, rotate: -8 }, { scale: 1, rotate: -2, duration: 0.35, ease: 'back.out(2.5)' }, T.verdict + 0.05)
-          .fromTo('.rv-reel', { y: 0 }, { y: () => -(REEL - 1) * (q('.rv-reel-item')[0]?.offsetHeight || 60), duration: 1.7, ease: 'power3.out' }, T.verdict + 0.2)
-          .to('.rv-roulette', { scale: 1.15, duration: 0.1, yoyo: true, repeat: 1 }, T.fate - 0.2)
-          .to('.rv-roulette', { scale: 0, opacity: 0, duration: 0.18, ease: 'back.in(2)' }, T.fate)
-          // 7.3 esito della sorte
+          .fromTo('.rv-siren', { backgroundColor: C.siren }, { backgroundColor: C.night, duration: 0.35 / Math.max(0.5, motion), ease: 'steps(1)', repeat: 9, yoyo: true }, T.verdict)
           .fromTo('.rv-title .l', { scale: 4, opacity: 0, rotate: () => gsap.utils.random(-30, 30) }, {
             scale: 1, opacity: 1, rotate: () => gsap.utils.random(-6, 6), duration: 0.16, ease: 'power4.in', stagger: 0.085,
-          }, T.fate)
-          .call(chaos, null, T.fate + 0.9)
-          .to('.rv-bigface', { scale: 1.1, rotate: 8, duration: 0.22, yoyo: true, repeat: 11, ease: 'sine.inOut' }, T.fate + 0.9)
-          .fromTo('.rv-penance', { scale: 0, rotate: 12 }, { scale: 1, rotate: -2, duration: 0.6, ease: 'back.out(2)' }, T.fate + 0.9);
+          }, T.verdict)
+          .call(chaos, null, T.verdict + 0.95)
+          .fromTo('.rv-bigface', { scale: 0, rotate: -200 }, { scale: 1, rotate: 0, duration: 0.8, ease: 'back.out(1.6)' }, T.verdict + 0.95)
+          .to('.rv-bigface', { scale: 1.1, rotate: 8, duration: 0.22, yoyo: true, repeat: 7, ease: 'sine.inOut' }, T.verdict + 1.75)
+          .fromTo('.rv-penance', { scale: 0, rotate: 12 }, { scale: 1, rotate: -2, duration: 0.6, ease: 'back.out(2)' }, T.verdict + 1.3);
       } else {
         tl.set('.rv-saved', { display: 'block' }, T.verdict)
           .fromTo('.rv-saved', { clipPath: 'circle(0% at 50% 50%)' }, { clipPath: 'circle(80% at 50% 50%)', duration: 0.7, ease: 'power2.out' }, T.verdict)
@@ -129,59 +115,45 @@ export function Reveal({ s, tv = false }) {
           .fromTo('.rv-title .l', { y: 80, opacity: 0, scale: 0.5 }, { y: 0, opacity: 1, scale: 1, duration: 0.7, ease: 'elastic.out(1, 0.5)', stagger: 0.07 }, T.verdict + 0.3)
           .call(() => burst({ x: 0.5, y: 0.45, count: 50, power: 0.9, colors: [C.cream, C.yellow, C.night] }), null, T.verdict + 0.4);
       }
-      const after = lost ? T.fate : T.verdict;
+      const after = T.verdict;
       tl.fromTo('.rv-banner', { scale: 0, rotate: -10 }, { scale: 1, rotate: -3, duration: 0.5, ease: 'back.out(3)' }, after + (lost ? 1.4 : 1.2))
         .fromTo('.rv-fire', { scale: 0 }, { scale: 1, duration: 0.6, ease: 'elastic.out(1, 0.4)' }, after + 1.8)
         .fromTo('.rv-meme', { scale: 0, rotate: 30 }, { scale: 1, rotate: 6, duration: 0.6, ease: 'back.out(2)' }, after + 2);
 
-      // 10.2 esito scommessa / riepilogo
+      // esito scommessa / riepilogo, poi la timeline si ferma sull'esito
       tl.fromTo('.rv-bet', { yPercent: 160, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.55, ease: 'back.out(1.8)' }, betT);
       if (!tv && myBet?.correct) tl.call(() => burst({ x: 0.5, y: 0.9, count: 30, power: 0.8, colors: [C.cyan, C.cream, C.yellow] }), null, betT + 0.2);
       if (!tv && myBet && !myBet.correct) tl.to('.rv-bet .avatar', { scaleY: 0.6, y: 12, duration: 0.5, ease: 'power2.in' }, betT + 0.5);
 
-      // una pausa a fine di ogni pagina: si va avanti solo quando l'host preme AVANTI
-      bounds.slice(1, -1).forEach((b) => tl.addPause(b));
+      tl.to({}, { duration: END - tl.duration() > 0 ? END - tl.duration() : 0.01 });
+      tl.eventCallback('onComplete', () => setDone(true));
       tlRef.current = tl;
     }, el);
     return () => { tlRef.current = null; ctx.revert(); clearConfetti(); music.release('reveal'); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.index]);
 
-  // Ogni pagina: suoni schedulati sull'orologio audio + timeline posizionata sul tempo del server
+  // Suoni schedulati sull'orologio audio + timeline posizionata sul tempo del server
   useEffect(() => {
     const tl = tlRef.current;
     if (!tl) return;
     const st = s.phaseStartsAt;
-    const at = (t) => atServer(st + (t - bounds[step]) * 1000);
-    const future = (t) => serverNow() < st + (t - bounds[step]) * 1000 - 40;
+    const at = (t) => atServer(st + t * 1000);
+    const future = (t) => serverNow() < st + t * 1000 - 40;
 
-    if (step === 0) { if (future(0)) sfx.whoosh(at(0)); }
-    if (step === 1) {
-      if (future(T.face)) sfx.drumroll(at(T.face), T.stop - T.face);
-      if (future(T.stop)) sfx.thud(at(T.stop));
-    }
-    if (step === 2) {
-      if (lost) {
-        if (future(T.verdict)) sfx.siren(at(T.verdict), T.fate - T.verdict + 0.2, 0.1);
-        // tic della roulette: uno per casella, rallentando come la ruota (power3.out)
-        for (let k = 1; k < REEL; k++) {
-          const tk = T.verdict + 0.2 + 1.7 * (1 - Math.cbrt(1 - k / (REEL - 1)));
-          if (future(tk)) sfx.tick(k % 2 === 0, at(tk));
-        }
-        if (future(T.fate)) {
-          fate === 'drink' ? sfx.drink(at(T.fate)) : sfx.penance(at(T.fate));
-          const letters = fate === 'drink' ? 11 : 10;
-          for (let i = 0; i < letters; i++) sfx.slam(at(T.fate + i * 0.085));
-        }
-      } else if (future(T.verdict)) sfx.saved(at(T.verdict));
-    }
-    if (step === 3 && !tv && myBet && future(betT)) (myBet.correct ? sfx.chaching : sfx.sad)(at(betT));
+    if (future(T.face)) sfx.drumroll(at(T.face), T.stop - T.face);
+    if (future(T.stop)) sfx.thud(at(T.stop));
+    if (lost) {
+      if (future(T.verdict + 0.95)) fate === 'drink' ? sfx.drink(at(T.verdict + 0.95)) : sfx.penance(at(T.verdict + 0.95));
+      const letters = fate === 'drink' ? 11 : 10;
+      for (let i = 0; i < letters; i++) if (future(T.verdict + i * 0.085)) sfx.slam(at(T.verdict + i * 0.085));
+    } else if (future(T.verdict)) sfx.saved(at(T.verdict));
+    if (!tv && myBet && future(betT)) (myBet.correct ? sfx.chaching : sfx.sad)(at(betT));
 
     const go = () => {
       const elapsed = Math.max(0, (serverNow() - st) / 1000);
-      const pos = Math.min(bounds[step] + elapsed, bounds[step + 1]);
-      tl.seek(Math.max(pos, bounds[step] + 0.001), true);
-      if (pos < bounds[step + 1]) tl.play();
+      if (elapsed >= END) { tl.progress(1, true); setDone(true); return; }
+      tl.seek(elapsed, true).play();
     };
     const wait = st - serverNow();
     if (wait > 0) {
@@ -190,7 +162,7 @@ export function Reveal({ s, tv = false }) {
     }
     go();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, s.phaseStartsAt, r.index]);
+  }, [s.phaseStartsAt, r.index]);
 
   const title = !lost ? ['SALVO'] : fate === 'drink' ? ['VALERIO', 'BEVE'] : ['PENITENZA!'];
   let li = 0;
@@ -236,15 +208,6 @@ export function Reveal({ s, tv = false }) {
           />
         </div>
         <div className="rv-titlebox">
-          {lost && (
-            <div className="rv-roulette">
-              <div className="rv-reel">
-                {reelItems(fate).map((k, i) => (
-                  <div key={i} className={`rv-reel-item is-${k}`}>{REEL_LABEL[k]}</div>
-                ))}
-              </div>
-            </div>
-          )}
           <h1 className="rv-title">
             {title.map((w) => (
               <span key={w} className="rv-word">
@@ -260,18 +223,14 @@ export function Reveal({ s, tv = false }) {
       </div>
 
       <BetResult s={s} res={res} tv={tv} myBet={myBet} />
-      {me?.isHost && <NextButton step={step} />}
+      {me?.isHost && done && <NextButton />}
     </div>
   );
 }
 
-function NextButton({ step }) {
+// Compare solo a fine animazione: si legge l'esito, poi l'host porta tutti alla classifica
+function NextButton() {
   const busy = useRef(false);
-  useEffect(() => {
-    busy.current = true;
-    const id = setTimeout(() => { busy.current = false; }, 700);
-    return () => clearTimeout(id);
-  }, [step]);
   return (
     <button
       className="rv-next"
@@ -282,7 +241,7 @@ function NextButton({ step }) {
         emit('host:next');
       }}
     >
-      {NEXT_LABEL[step] || 'AVANTI ▶'}
+      CLASSIFICA ▶
     </button>
   );
 }

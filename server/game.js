@@ -2,9 +2,8 @@
 import crypto from 'node:crypto';
 
 export const REVEAL_LEAD_MS = 500; // ritardo programmato: tutti ricevono l'evento prima che parta
-export const REVEAL_STEPS = 4; // pagine del reveal: gruppo, Valerio, verdetto, scommesse (poi classifica)
+export const REVEAL_STEPS = 1; // il reveal scorre tutto di fila e si ferma sull'esito; AVANTI porta alla classifica
 const STEP_LEAD_MS = 350; // ogni pagina parte un filo nel futuro, così arriva a tutti prima di iniziare
-export const PENANCE_CHANCE = Number(process.env.PENANCE_CHANCE ?? 0.5); // quando Valerio perde: 50% beve, 50% penitenza
 const HOST_GRACE_MS = Number(process.env.HOST_GRACE_MS || 3000);
 export const MAX_PLAYERS = 30;
 export const COLOR_PAIRS = 6; // coppie di colori X/Y, il client le mappa sulla palette
@@ -55,7 +54,7 @@ export class Room {
     this.drinks = 0; // volte che Valerio ha bevuto
     this.penances = 0; // volte che ha fatto penitenza
     this.streak = 0; // sconfitte di fila
-    this.usedPenances = new Set();
+    this.penanceIdx = 0; // le penitenze escono nell'ordine della lista
     this.final = null;
     for (const p of this.players.values()) p.score = 0;
   }
@@ -297,13 +296,14 @@ export class Room {
     this.touch();
   }
 
+  // Niente sorte: si alterna. 1ª sconfitta penitenza, 2ª beve, 3ª penitenza...
+  // Le penitenze seguono l'ordine della lista del pannello (e ricominciano quando finiscono).
   drawPunishment() {
     const all = this.getPenances();
-    if (!all.length || Math.random() >= PENANCE_CHANCE) return { type: 'drink' };
-    let pool = all.filter((t) => !this.usedPenances.has(t));
-    if (!pool.length) { this.usedPenances.clear(); pool = all; }
-    const text = pool[Math.floor(Math.random() * pool.length)];
-    this.usedPenances.add(text);
+    const losses = this.drinks + this.penances;
+    if (!all.length || losses % 2 === 1) return { type: 'drink' };
+    const text = all[this.penanceIdx % all.length];
+    this.penanceIdx++;
     return { type: 'penance', text };
   }
 

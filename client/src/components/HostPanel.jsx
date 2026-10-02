@@ -119,7 +119,7 @@ function Penances({ s, op }) {
   };
   return (
     <div>
-      <p className="hint">Quando Valerio perde, la sorte sceglie: 50% beve, 50% penitenza. Le penitenze escono a caso e non si ripetono finché non sono uscite tutte. Se la lista è vuota, beve sempre.</p>
+      <p className="hint">Quando Valerio perde si alterna: la 1ª volta penitenza, la 2ª beve, la 3ª penitenza e così via. Le penitenze escono nell’ordine di questa lista (dall’alto), poi ricominciano. Se la lista è vuota, beve sempre.</p>
       <label className="field">
         <span>Una penitenza per riga · {count} in lista</span>
         <textarea rows={14} value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} />

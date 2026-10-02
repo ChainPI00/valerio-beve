@@ -1,9 +1,9 @@
 # 🍺 Valerio Beve
 
-Il gioco multiplayer della laurea di Valerio. Ognuno gioca dal proprio telefono, fino a ~25 persone. Si risponde a "Preferiresti X o Y?" e, se Valerio finisce in minoranza, perde: la sorte decide se beve o se fa una penitenza.
+Il gioco multiplayer della laurea di Valerio. Ognuno gioca dal proprio telefono, fino a ~25 persone. Si risponde a "Preferiresti X o Y?" e, se Valerio finisce in minoranza, perde: a turno fa una penitenza o beve.
 
 - **Telefoni**: entrano con un codice di 4 lettere, votano X/Y e scommettono se Valerio perderà (solo punti, chi sbaglia non beve).
-- **Reveal sincronizzato**: dura circa 8 secondi e parte nello stesso istante su tutti i dispositivi, con barre, pendolo, sirena, coriandoli e vibrazione.
+- **Reveal sincronizzato**: circa 9 secondi di show (barre, pendolo, sirena, coriandoli, vibrazione) che parte nello stesso istante su tutti i dispositivi e poi resta fermo sull'esito finché l'host non preme AVANTI.
 - **Schermo grande** (opzionale): TV o proiettore su `/tv`, con codice gigante, QR code e lo show in versione lunga.
 - **Pannello host**: per domande, penitenze, foto di Valerio per ogni espressione, meme interni e backup.
 
@@ -28,7 +28,7 @@ Per aprire il gioco dai telefoni sulla stessa rete Wi-Fi usa `http://<ip-del-mac
 2. **Tutti gli altri** premono *Entra* e inseriscono il codice, oppure inquadrano il QR sulla TV o aprono `sito/CODICE`.
 3. **In lobby** l'host tocca il nome di Valerio per dargli la corona 👑 e poi preme **START**.
 4. **Ogni round**: tutti votano. Chi non è Valerio poi scommette "Perde / Si salva". Il round si chiude quando hanno votato tutti oppure allo scadere del timer.
-5. **Reveal**, poi mini classifica ("Chi conosce meglio Valerio"). Da lì l'host preme **PROSSIMA**.
+5. **Reveal**: lo show scorre da solo e si ferma sull'esito (penitenza o bevuta, esito delle scommesse). L'host preme **CLASSIFICA ▶** per la mini classifica ("Chi conosce meglio Valerio") e poi **PROSSIMA ▶**.
 6. Si continua fino alla fine delle domande, oppure finché l'host non termina dalla regia 🎬. Alla fine ci sono il podio, il totale delle bevute e i 3 momenti in cui Valerio è rimasto più solo.
 
 **TV / proiettore**: dal browser della TV apri `sito/tv/CODICE` e clicca "Accendi lo show". Il clic serve anche a sbloccare l'audio.
@@ -42,11 +42,11 @@ Per aprire il gioco dai telefoni sulla stessa rete Wi-Fi usa `http://<ip-del-mac
 | Pareggio tra gli altri | **Perde comunque** |
 | Tutti gli altri uniti contro di lui | **Perde** + "UNICO CONTRO TUTTI" e caos doppio |
 | Valerio non vota entro il timer | **Perde** ("non ha scelto") |
-| Quando perde | Roulette: 50% **🍺 beve**, 50% **🎭 penitenza** (estratta dalla lista, senza ripetizioni) |
+| Quando perde | Si alterna: 1ª sconfitta **🎭 penitenza**, 2ª **🍺 beve**, 3ª penitenza… Le penitenze escono nell'ordine della lista |
 | Scommessa indovinata | +1 punto. Chi sbaglia prende 0 e basta: niente bevute per chi scommette |
 | 3 sconfitte di fila | badge 🔥 IN FIAMME |
 
-La sorte la tira il server, quindi tutti i telefoni e la TV vedono lo stesso esito e la stessa penitenza.
+L'esito lo decide il server, quindi tutti i telefoni e la TV vedono la stessa cosa nello stesso istante.
 
 Il voto di Valerio non conta per la maggioranza e resta nascosto fino al reveal.
 
@@ -54,7 +54,7 @@ Il voto di Valerio non conta per la maggioranza e resta nascosto fino al reveal.
 
 Dal pannello host, con il tasto **Domande & foto** in lobby o 🎬 durante la partita:
 
-- **Penitenze**: una per riga. Ce ne sono 22 già pronte a tema laurea e Poli; se svuoti la lista Valerio beve sempre.
+- **Penitenze**: una per riga, escono in quest'ordine. Ce ne sono 22 già pronte a tema laurea e Poli; se svuoti la lista Valerio beve sempre.
 - **Domande**: incollale una per riga nel formato `X | Y`. Le parole tra `*asterischi*` vengono evidenziate. Puoi riordinare, mescolare ed eliminare le domande, e associare un meme a ciascuna.
 - **Facce**: carica una foto per ogni espressione (neutra, felice, disperata, sorpresa, ubriaca, con l'alloro). Meglio PNG scontornati; se la foto ha lo sfondo viene ritagliata da sola a sticker. Se manca un'espressione si usa la neutra, e senza nessuna foto compare il Valerio disegnato.
 - **Meme**: compaiono come sticker nel reveal della domanda a cui li associ.

@@ -131,7 +131,7 @@ function Bet({ s, vote, onPick }) {
       <div className="st"><Chip choice={vote} r={r} /></div>
       <div className="st bet-face"><Face expr="sorpreso" size={120} track /></div>
       <h2 className="st title outline bet-title">E VALERIO…<br /><span className="kw-y">PERDE?</span></h2>
-      <p className="st hint">Scommetti: se indovini, +1 punto. Se perde, la sorte sceglie tra bere e penitenza.</p>
+      <p className="st hint">Scommetti: se indovini, +1 punto. Se perde, a turno beve o fa penitenza.</p>
       <div className="st bet-buttons">
         <button className="bet-btn bet-lose" style={{ '--c': C.orange }} onClick={() => pick('lose')}>
           <span className="emoji">🍺🎭</span><span>PERDE</span>

@@ -910,3 +910,6 @@ em { font-style: normal; }
   .pc-chant { font-size: 18px; padding: 4px 12px; }
   .pc-scroll { font-size: 14px; padding: 6px 12px; }
 }
+
+.exit-link { align-self: center; padding: 6px 10px; }
+.exit-link.is-armed { color: var(--yellow); opacity: 1; text-decoration: none; font-weight: 700; }

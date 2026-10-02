@@ -8,6 +8,7 @@ import { C, joke, vibrate, motion } from '../lib/theme.js';
 import { emit, leave } from '../lib/net.js';
 import { sfx } from '../lib/audio.js';
 import { loadImage } from '../lib/fx.js';
+import { ExitLink } from '../components/ExitLink.jsx';
 
 const IS_IPHONE = typeof navigator !== 'undefined' && /iP(hone|od)/.test(navigator.userAgent);
 
@@ -140,6 +141,7 @@ export function Lobby({ s }) {
             {s.valerioId ? 'START ▶' : 'Scegli Valerio'}
           </Btn>
           <p className="hint small">{s.questionCount} domande · {s.players.length} in stanza · TV: <b>{location.host}/tv/{s.code}</b></p>
+          <ExitLink label="esci (la stanza resta aperta)" />
         </div>
       ) : (
         <div className="st waiting-line">

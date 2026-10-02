@@ -7,6 +7,7 @@ import { C, motion } from '../lib/theme.js';
 import { emit, leave, serverNow } from '../lib/net.js';
 import { Proclamation, PROCLAIM_S } from '../components/Proclamation.jsx';
 import { sfx } from '../lib/audio.js';
+import { ExitLink } from '../components/ExitLink.jsx';
 import { burst } from '../lib/fx.js';
 
 // Conferma in due tempi: il secondo tocco vale solo dopo mezzo secondo (un doppio tocco non conferma)
@@ -122,6 +123,7 @@ export function End({ s, tv = false }) {
       {s.me?.isHost ? (
         <div className="btn-col">
           <ConfirmBtn label="RIGIOCA" confirm="Sicuro? Si azzera tutto" onConfirm={() => emit('host:restart')} />
+          <ExitLink />
         </div>
       ) : (
         !tv && <button className="link" onClick={leave}>esci dalla stanza</button>

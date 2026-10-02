@@ -8,14 +8,15 @@ Sito: **https://valerio-beve-production.up.railway.app** · TV: `…/tv/CODICE`
 - [ ] **Pack di backup scaricato** (pannello host → Info → Scarica pack)
 - [ ] Credito/piano Railway attivo (dashboard Railway → piano Hobby o credito residuo)
 - [ ] Prova con 4–5 telefoni veri, almeno un iPhone e un Android
-- [ ] Nessun aggiornamento del sito da qui in poi
+- [ ] Nessun aggiornamento del sito da qui in poi (un aggiornamento stacca tutti per ~20 secondi)
+- [ ] Il telefono dell'host carico (o con un powerbank): fa da regia per tutta la sera
 
 ## Alla festa, prima di iniziare
 
 1. **Host**: apre il sito → *Crea partita* → nome + PIN. In alto compare **STANZA XXXX** (4 lettere).
 2. **TV** (se c'è): dal browser della TV o di un portatile collegato via HDMI apri `…/tv/XXXX` e clicca una volta (sblocca l'audio).
 3. **Tutti**: aprono il sito → *Entra* → le 4 lettere → nome. Oppure QR sulla TV, oppure il link che l'host copia toccando "STANZA".
-4. Dite a tutti: **volume su, tasto silenzioso disattivato, telefono in verticale**.
+4. Dite a tutti: **volume su, tasto silenzioso disattivato (iPhone), telefono in verticale**. Chi manda la musica alla cassa dal telefono può giocare tranquillo: il gioco non ferma Spotify (e col tasto ♪ spegne la musica del gioco).
 5. Host: tocca **Valerio** (gli compare l'alloro) → **START**.
 
 ## Durante il gioco
@@ -33,14 +34,14 @@ Sito: **https://valerio-beve-production.up.railway.app** · TV: `…/tv/CODICE`
 | Un telefono si è bloccato / ha ricaricato | Riaprire il sito: rientra da solo nella partita |
 | Qualcuno ha cambiato telefono o perso la sessione | *Entra* con il codice e **lo stesso nome** → alla domanda "Sei tu?" tocca **Sì, sono io**: riprende posto e punti. (Due persone con lo stesso nome: l'altro tocca "No, sono un altro" e diventa "Marco 2") |
 | Il telefono di **Valerio** è morto | Valerio entra da un altro telefono (nome qualsiasi). Host: in classifica → 🎬 → 👑 accanto al suo nome |
-| Il telefono dell'**host** è morto | Da un altro telefono: *Entra* → codice → **stesso nome** → PIN. Si riprende il controllo; intanto il gioco è in pausa (si può riprendere anche dalla regia: 🎬 → Riprendi) |
+| Il telefono dell'**host** è morto | Da un altro telefono, **in una finestra privata/anonima** (così non si rompe la sessione del proprietario): *Entra* → codice → **stesso nome** → PIN. Si riprende il controllo; intanto il gioco è in pausa (poi 🎬 → Riprendi) |
 | Un voto "non è arrivato" | Compare l'avviso giallo e tornano i bottoni: basta rivotare |
 | Qualcuno è entrato due volte / un nome strano | 🎬 → ✕ accanto al nome → *Espelli* |
 | Banner "Connessione persa" | Rete del locale: aspettare qualche secondo, o passare da Wi-Fi a 4G |
 | Il sito non si apre per niente | Controllare la connessione; se è Railway, vedi Piano B |
 | Schermata "Ops!" | Si ricarica da sola e rientra in partita |
 
-Il server salva la partita di continuo: anche se si riavvia, dopo qualche secondo tutti rientrano da soli dove erano.
+Il server salva la partita di continuo: anche se si riavvia, dopo qualche secondo tutti rientrano da soli dove erano, e il tempo della domanda riparte da dove era (provato con 30 telefoni: tutti dentro in 17 secondi, voti intatti).
 
 ## Piano B (se Railway non risponde)
 
